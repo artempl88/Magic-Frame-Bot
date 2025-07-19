@@ -1,0 +1,97 @@
+# ===========================================
+# TELEGRAM BOT CONFIGURATION
+# ===========================================
+BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+BOT_USERNAME=SeedanceOfficialBot
+
+# ===========================================
+# WEBHOOK CONFIGURATION (для поддомена bot.seedancebot.com)
+# ===========================================
+WEBHOOK_HOST=https://bot.seedancebot.com
+WEBHOOK_PATH=/webhook
+WEBHOOK_PORT=8080
+
+# ===========================================
+# DATABASE CONFIGURATION
+# ===========================================
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=seedance_bot
+DB_USER=seedance
+DB_PASSWORD=your_strong_db_password_here
+
+# ===========================================
+# REDIS CONFIGURATION
+# ===========================================
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=your_strong_redis_password_here
+REDIS_DB=0
+
+# ===========================================
+# API CONFIGURATION
+# ===========================================
+WAVESPEED_API_KEY=your_wavespeed_api_key_here
+WAVESPEED_BASE_URL=https://api.wavespeed.ai
+
+# ===========================================
+# ADMIN CONFIGURATION
+# ===========================================
+ADMIN_IDS=123456789,987654321  # Замените на ваши Telegram ID
+ADMIN_CHANNEL_ID=-1001234567890  # ID канала для уведомлений (опционально)
+SUPPORT_CHAT_ID=-1001234567890  # ID чата поддержки (опционально)
+
+# ===========================================
+# PAYMENT CONFIGURATION
+# ===========================================
+ENABLE_TELEGRAM_STARS=true
+PAYMENT_PROVIDER_TOKEN=  # Оставьте пустым если используете только Stars
+
+# ===========================================
+# SECURITY
+# ===========================================
+SECRET_KEY=your_very_long_and_secure_secret_key_here_minimum_32_characters
+ENVIRONMENT=production
+
+# ===========================================
+# LOGGING & MONITORING
+# ===========================================
+DEBUG=false
+LOG_LEVEL=INFO
+ENABLE_METRICS=true
+SENTRY_DSN=  # Опционально для мониторинга ошибок
+
+# ===========================================
+# CELERY CONFIGURATION
+# ===========================================
+CELERY_BROKER_URL=redis://:your_strong_redis_password_here@redis:6379/1
+CELERY_RESULT_BACKEND=redis://:your_strong_redis_password_here@redis:6379/1
+
+# ===========================================
+# FILE LIMITS
+# ===========================================
+MAX_FILE_SIZE=10485760  # 10MB
+TEMP_FILES_DIR=/app/temp_files
+
+# ===========================================
+# RATE LIMITS
+# ===========================================
+GENERATIONS_PER_MINUTE=3
+GENERATIONS_PER_HOUR=30
+MAX_QUEUE_SIZE=100
+GENERATION_TIMEOUT=300
+
+# ===========================================
+# BONUS SYSTEM
+# ===========================================
+WELCOME_BONUS_CREDITS=10
+REFERRAL_BONUS_CREDITS=20
+REFERRAL_FRIEND_BONUS_CREDITS=10
+MAX_REFERRAL_BONUS_PER_DAY=100
+
+# ===========================================
+# BACKUP CONFIGURATION
+# ===========================================
+BACKUP_ENABLED=true
+BACKUP_INTERVAL_HOURS=24
+BACKUP_RETENTION_DAYS=7 
