@@ -15,7 +15,8 @@ from bot.handlers import (
     balance_handler,
     settings_handler,
     admin_handler,
-    support_handler
+    support_handler,
+    utm_admin
 )
 from bot.middlewares import (
     ThrottlingMiddleware,
@@ -129,6 +130,7 @@ def register_routers(dp: Dispatcher):
     dp.include_router(balance_handler)
     dp.include_router(settings_handler)
     dp.include_router(support_handler)
+    dp.include_router(utm_admin)
     dp.include_router(admin_handler)  # Админ роутер в конце
 
 def register_middlewares(dp: Dispatcher):

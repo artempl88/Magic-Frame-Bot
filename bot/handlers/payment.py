@@ -14,6 +14,7 @@ from bot.keyboard.inline import (
 )
 from bot.utils.messages import MessageTemplates
 from services.database import db
+from services.utm_analytics import utm_service
 from core.constants import CREDIT_PACKAGES, SPECIAL_OFFERS, TransactionType
 from core.config import settings
 from bot.middlewares.i18n import I18n
@@ -441,6 +442,22 @@ async def process_successful_payment(message: Message):
         builder.adjust(2, 2)
         
         await message.answer(text, reply_markup=builder.as_markup())
+        
+        # Отслеживаем событие покупки для UTM аналитики
+        try:
+            await utm_service.track_utm_event(
+                user_id=user.id,
+                event_type='purchase',
+                event_data={
+                    'transaction_id': transaction_id,
+                    'package_id': package_id,
+                    'telegram_charge_id': payment.telegram_payment_charge_id
+                },
+                revenue=float(payment.total_amount),  # В Telegram Stars
+                credits_purchased=transaction.amount
+            )
+        except Exception as e:
+            logger.error(f"Error tracking UTM purchase event: {e}")
         
         # Логируем успешный платеж Stars
         logger.info(

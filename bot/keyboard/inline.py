@@ -279,11 +279,12 @@ def get_admin_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     builder.button(text=f"📢 {_('admin.broadcast.title')}", callback_data="admin_broadcast")
     builder.button(text=f"🎁 {_('admin.credits.title')}", callback_data="admin_give_credits")
     builder.button(text=f"🚫 {_('admin.bans.title')}", callback_data="admin_bans")
+    builder.button(text=f"🧩 UTM Аналитика", callback_data="utm_analytics")
     builder.button(text=f"💰 {_('admin.api_balance')}", callback_data="admin_api_balance")
     builder.button(text=f"📋 {_('admin.logs.title')}", callback_data="admin_logs")
     builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     
-    builder.adjust(2, 2, 2, 1, 1)
+    builder.adjust(2, 2, 2, 2, 1)
     return builder.as_markup()
 
 def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:

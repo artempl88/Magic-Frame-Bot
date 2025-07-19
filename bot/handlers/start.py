@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.keyboard.inline import get_main_menu, get_language_keyboard
 from bot.utils.messages import MessageTemplates
 from services.database import db
+from services.utm_analytics import utm_service
 from core.config import settings
 from core.constants import LANGUAGES, NEW_USER_BONUS
 from bot.middlewares.i18n import i18n
@@ -56,14 +57,40 @@ async def cmd_start(message: Message, state: FSMContext):
     
     user_id = message.from_user.id
     
-    # Проверяем реферальную ссылку
+    # Проверяем параметры команды start
     referrer_id = None
+    utm_short_code = None
+    
     if len(message.text.split()) > 1:
-        ref_match = re.match(r'/start ref_(\d+)', message.text)
+        start_param = message.text.split()[1]
+        
+        # Проверяем реферальную ссылку
+        ref_match = re.match(r'ref_(\d+)', start_param)
         if ref_match:
             potential_referrer = int(ref_match.group(1))
             if potential_referrer != user_id:  # Нельзя быть рефералом самого себя
                 referrer_id = potential_referrer
+        
+        # Проверяем UTM параметр
+        utm_match = re.match(r'utm_(.+)', start_param)
+        if utm_match:
+            utm_short_code = utm_match.group(1)
+            logger.info(f"UTM click detected: {utm_short_code} from user {user_id}")
+            
+            # Отслеживаем UTM клик
+            try:
+                await utm_service.track_utm_click(
+                    short_code=utm_short_code,
+                    telegram_id=user_id,
+                    user_agent=message.from_user.username,  # Используем username как user_agent
+                    additional_params={
+                        'first_name': message.from_user.first_name,
+                        'last_name': message.from_user.last_name,
+                        'username': message.from_user.username
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error tracking UTM click: {e}")
     
     # Получаем или создаем пользователя
     user = await db.get_user(user_id)
@@ -92,6 +119,23 @@ async def cmd_start(message: Message, state: FSMContext):
             welcome_text,
             reply_markup=get_main_menu(detected_lang, user.balance)
         )
+        
+        # Отслеживаем событие регистрации для UTM аналитики
+        if utm_short_code:
+            try:
+                await utm_service.track_utm_event(
+                    user_id=user.id,  # Внутренний ID пользователя
+                    event_type='registration',
+                    event_data={
+                        'telegram_id': user_id,
+                        'username': message.from_user.username,
+                        'first_name': message.from_user.first_name,
+                        'utm_short_code': utm_short_code,
+                        'bonus_credits': NEW_USER_BONUS
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error tracking UTM registration event: {e}")
     else:
         # Для существующего пользователя используем сохраненный язык
         user_lang = user.language_code or 'ru'

@@ -17,6 +17,7 @@ from bot.utils.messages import MessageTemplates
 from services.database import db
 from services.wavespeed_api import get_wavespeed_api, GenerationRequest, calculate_generation_cost
 from services.api_monitor import api_monitor
+from services.utm_analytics import utm_service
 from core.constants import GENERATION_COSTS, GenerationStatus, ModelType, MODEL_INFO
 from bot.middlewares.throttling import rate_limit, GenerationThrottling
 from bot.middlewares.i18n import i18n
@@ -997,6 +998,24 @@ async def process_generation(message: Message, generation, data: dict, state: FS
         # Сохраняем file_id видео для быстрой отправки в будущем
         if sent_message.video:
             await db.update_generation_video_file_id(generation.id, sent_message.video.file_id)
+        
+        # Отслеживаем событие успешной генерации для UTM аналитики
+        try:
+            await utm_service.track_utm_event(
+                user_id=user.id,
+                event_type='generation',
+                event_data={
+                    'generation_id': generation.id,
+                    'model': data['model'],
+                    'mode': data['mode'],
+                    'resolution': data['resolution'],
+                    'duration': data['duration'],
+                    'generation_time': result.generation_time
+                },
+                credits_spent=data['cost']
+            )
+        except Exception as e:
+            logger.error(f"Error tracking UTM generation event: {e}")
         
         # Проверяем баланс API после завершения генерации
         try:

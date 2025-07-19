@@ -376,3 +376,134 @@ class UserAction(Base):
         Index('idx_user_action_created', 'created_at'),
         Index('idx_user_action_session', 'session_id'),
     )
+
+# =================== UTM АНАЛИТИКА ===================
+
+class UTMCampaign(Base):
+    """UTM кампании - сгенерированные ссылки"""
+    __tablename__ = 'utm_campaigns'
+    
+    id = Column(Integer, primary_key=True)
+    
+    # UTM параметры
+    utm_source = Column(String(100), nullable=False, index=True)  # vk, telegram, youtube
+    utm_medium = Column(String(100), nullable=False, index=True)  # cpc, banner, post
+    utm_campaign = Column(String(200), nullable=False, index=True)  # summer_promo_2024
+    utm_content = Column(String(200), nullable=True)  # button_top, banner_main
+    utm_term = Column(String(200), nullable=True)  # ключевые слова (опционально)
+    
+    # Метаданные кампании
+    name = Column(String(200), nullable=False)  # Понятное название кампании
+    description = Column(Text, nullable=True)  # Описание кампании
+    action_type = Column(String(50), nullable=False, default='registration')  # registration, purchase, visit
+    
+    # Сгенерированная ссылка
+    utm_link = Column(Text, nullable=False)  # Полная сгенерированная ссылка
+    short_code = Column(String(20), unique=True, nullable=False, index=True)  # Короткий код для ссылки
+    
+    # Администрирование
+    created_by_admin_id = Column(BigInteger, nullable=False)  # ID админа, создавшего кампанию
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = Column(Boolean, default=True, index=True)
+    
+    # Статистика (денормализация для быстроты)
+    total_clicks = Column(Integer, default=0)
+    total_registrations = Column(Integer, default=0)
+    total_purchases = Column(Integer, default=0)
+    total_revenue = Column(Float, default=0.0)
+    
+    # Связи
+    utm_clicks = relationship("UTMClick", back_populates="campaign", cascade="all, delete-orphan")
+    utm_events = relationship("UTMEvent", back_populates="campaign", cascade="all, delete-orphan")
+    
+    # Индексы
+    __table_args__ = (
+        Index('idx_utm_campaign_source', 'utm_source'),
+        Index('idx_utm_campaign_medium', 'utm_medium'),
+        Index('idx_utm_campaign_name', 'utm_campaign'),
+        Index('idx_utm_campaign_created', 'created_at'),
+        Index('idx_utm_campaign_active', 'is_active'),
+        Index('idx_utm_campaign_admin', 'created_by_admin_id'),
+    )
+
+class UTMClick(Base):
+    """Клики по UTM ссылкам"""
+    __tablename__ = 'utm_clicks'
+    
+    id = Column(Integer, primary_key=True)
+    
+    # Связи
+    campaign_id = Column(Integer, ForeignKey('utm_campaigns.id'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)  # Может быть NULL для анонимов
+    
+    # Данные клика
+    telegram_id = Column(BigInteger, nullable=True, index=True)  # ID пользователя в Telegram
+    clicked_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    # Техническая информация
+    user_agent = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)  # IPv6 поддержка
+    referrer = Column(Text, nullable=True)
+    
+    # Дополнительные UTM параметры (если переданы)
+    additional_params = Column(JSON, nullable=True)  # Любые дополнительные параметры
+    
+    # Флаги
+    is_first_visit = Column(Boolean, default=True, index=True)  # Первый ли это визит пользователя
+    is_registered_user = Column(Boolean, default=False, index=True)  # Зарегистрированный ли пользователь
+    
+    # Связи
+    campaign = relationship("UTMCampaign", back_populates="utm_clicks")
+    user = relationship("User", backref="utm_clicks")
+    
+    # Индексы
+    __table_args__ = (
+        Index('idx_utm_click_campaign', 'campaign_id'),
+        Index('idx_utm_click_user', 'user_id'),
+        Index('idx_utm_click_telegram', 'telegram_id'),
+        Index('idx_utm_click_date', 'clicked_at'),
+        Index('idx_utm_click_first', 'is_first_visit'),
+    )
+
+class UTMEvent(Base):
+    """События пользователей, привязанные к UTM кампаниям"""
+    __tablename__ = 'utm_events'
+    
+    id = Column(Integer, primary_key=True)
+    
+    # Связи
+    campaign_id = Column(Integer, ForeignKey('utm_campaigns.id'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    click_id = Column(Integer, ForeignKey('utm_clicks.id'), nullable=True, index=True)  # Связь с кликом
+    
+    # Данные события
+    event_type = Column(String(50), nullable=False, index=True)  # registration, purchase, generation, etc
+    event_data = Column(JSON, nullable=True)  # Дополнительные данные события
+    
+    # Временные метки
+    event_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    # Ценностные метрики
+    revenue = Column(Float, nullable=True)  # Выручка от события (для покупок)
+    credits_spent = Column(Integer, nullable=True)  # Потрачено кредитов
+    credits_purchased = Column(Integer, nullable=True)  # Куплено кредитов
+    
+    # Метаданные
+    session_id = Column(String(100), nullable=True, index=True)  # ID сессии пользователя
+    time_from_click = Column(Integer, nullable=True)  # Время от клика до события (в секундах)
+    
+    # Связи
+    campaign = relationship("UTMCampaign", back_populates="utm_events")
+    user = relationship("User", backref="utm_events")
+    click = relationship("UTMClick", backref="utm_events")
+    
+    # Индексы
+    __table_args__ = (
+        Index('idx_utm_event_campaign', 'campaign_id'),
+        Index('idx_utm_event_user', 'user_id'),
+        Index('idx_utm_event_type', 'event_type'),
+        Index('idx_utm_event_date', 'event_at'),
+        Index('idx_utm_event_click', 'click_id'),
+        Index('idx_utm_event_session', 'session_id'),
+    )
