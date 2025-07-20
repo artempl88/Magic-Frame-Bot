@@ -3,8 +3,7 @@
 .PHONY: help build up down restart logs shell-bot shell-db backup clean
 
 # Переменные
-COMPOSE_FILE_LOCAL = docker-compose.simple.yml
-COMPOSE_FILE_VPS = docker-compose.client.yml
+COMPOSE_FILE = docker-compose.yml
 SERVICE_NAME = bot
 
 help: ## Показать справку
@@ -14,69 +13,76 @@ help: ## Показать справку
 # === ОСНОВНЫЕ КОМАНДЫ ===
 
 build: ## Собрать Docker образы
-	docker-compose -f $(COMPOSE_FILE_LOCAL) build
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client build
 
-up: ## Запустить бота (минимальная конфигурация)
-	docker-compose -f $(COMPOSE_FILE_LOCAL) up -d
+up: ## Запустить бота на VPS
+	@echo "🚀 Запуск Seedance Bot на VPS..."
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up -d
+	@echo "✅ Бот запущен! Webhook: https://bot.seedancebot.com/kwork"
+
+up-backup: ## Запустить с автоматическими бэкапами
+	@echo "🚀 Запуск с автоматическими бэкапами..."
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client --profile backup up -d
+	@echo "✅ Бот с бэкапами запущен!"
 
 up-full: ## Запустить с Celery Worker
-	docker-compose -f $(COMPOSE_FILE_LOCAL) --profile full up -d
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client --profile full up -d
 
-up-local: ## Запустить в foreground режиме
-	docker-compose -f $(COMPOSE_FILE_LOCAL) up
+up-foreground: ## Запустить в foreground режиме
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up
 
 down: ## Остановить все сервисы
-	docker-compose -f $(COMPOSE_FILE_LOCAL) down
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client down
 
 restart: ## Перезапустить все сервисы
-	docker-compose -f $(COMPOSE_FILE_LOCAL) restart
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client restart
 
 # === ЛОГИ ===
 
 logs: ## Показать все логи
-	docker-compose -f $(COMPOSE_FILE_LOCAL) logs -f
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client logs -f
 
 logs-bot: ## Показать логи бота
-	docker-compose -f $(COMPOSE_FILE_LOCAL) logs -f $(SERVICE_NAME)
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client logs -f $(SERVICE_NAME)
 
 logs-db: ## Показать логи PostgreSQL
-	docker-compose -f $(COMPOSE_FILE_LOCAL) logs -f postgres
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client logs -f postgres
 
 logs-redis: ## Показать логи Redis
-	docker-compose -f $(COMPOSE_FILE_LOCAL) logs -f redis
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client logs -f redis
 
 # === ПОДКЛЮЧЕНИЕ К СЕРВИСАМ ===
 
 shell-bot: ## Войти в контейнер бота
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec $(SERVICE_NAME) /bin/bash
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec $(SERVICE_NAME) /bin/bash
 
 shell-db: ## Войти в PostgreSQL
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres psql -U botuser -d client_bot
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres psql -U seedance -d seedance_bot
 
 shell-redis: ## Войти в Redis CLI
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec redis redis-cli -a redis_pass
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec redis redis-cli -a RagnarLothbrok2021!
 
 # === МИГРАЦИИ И ОБСЛУЖИВАНИЕ ===
 
 migrate: ## Применить миграции БД
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec $(SERVICE_NAME) python migrations/apply_migrations.py
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec $(SERVICE_NAME) python migrations/apply_migrations.py
 
-status: ## Показать статус контейнеров
-	docker-compose -f $(COMPOSE_FILE_LOCAL) ps
+ps: ## Показать статус контейнеров
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client ps
 
 health: ## Проверить здоровье сервисов
 	@echo "Проверка бота..."
-	@curl -f http://localhost:8081/health || echo "❌ Bot недоступен"
+	@curl -f https://bot.seedancebot.com/kwork/health || echo "❌ Bot недоступен"
 	@echo "Проверка PostgreSQL..."
-	@docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres pg_isready -U botuser -d client_bot || echo "❌ PostgreSQL недоступен"
+	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_isready -U seedance -d seedance_bot || echo "❌ PostgreSQL недоступен"
 	@echo "Проверка Redis..."
-	@docker-compose -f $(COMPOSE_FILE_LOCAL) exec redis redis-cli -a redis_pass ping || echo "❌ Redis недоступен"
+	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec redis redis-cli -a RagnarLothbrok2021! ping || echo "❌ Redis недоступен"
 
 # === РЕЗЕРВНОЕ КОПИРОВАНИЕ ===
 
 backup: ## Создать резервную копию БД
 	@mkdir -p ./backups
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres pg_dump -U botuser client_bot | gzip > ./backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_dump -U seedance seedance_bot | gzip > ./backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
 	@echo "Резервная копия создана в ./backups/"
 
 restore: ## Восстановить БД из последней резервной копии
@@ -86,14 +92,19 @@ restore: ## Восстановить БД из последней резервн
 
 restore-file: ## Восстановить из конкретного файла (укажите BACKUP_FILE=path)
 	@if [ -z "$(BACKUP_FILE)" ]; then echo "Укажите BACKUP_FILE=path"; exit 1; fi
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres dropdb -U botuser client_bot || true
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres createdb -U botuser client_bot
-	gunzip -c $(BACKUP_FILE) | docker-compose -f $(COMPOSE_FILE_LOCAL) exec -T postgres psql -U botuser client_bot
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres dropdb -U seedance seedance_bot || true
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres createdb -U seedance seedance_bot
+	gunzip -c $(BACKUP_FILE) | docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec -T postgres psql -U seedance seedance_bot
 
 backup-auto: ## Создать автоматический бэкап прямо сейчас
 	@echo "Создание внепланового автоматического бэкапа..."
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres sh -c 'pg_dump -U botuser client_bot | gzip > /backups/manual_backup_$$(date +%Y%m%d_%H%M%S).sql.gz'
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres sh -c 'pg_dump -U seedance seedance_bot | gzip > /backups/manual_backup_$$(date +%Y%m%d_%H%M%S).sql.gz'
 	@echo "✅ Автоматический бэкап создан"
+
+backup-cleanup: ## Очистить старые бэкапы (старше 30 дней)
+	@echo "Очистка старых бэкапов..."
+	find ./backups -name "*.sql.gz" -mtime +30 -delete 2>/dev/null || true
+	@echo "✅ Старые бэкапы очищены"
 
 backup-list: ## Показать список всех бэкапов
 	@echo "📁 Список бэкапов:"
@@ -149,29 +160,29 @@ quick-start: build up ## Быстрый старт (сборка + запуск)
 quick-restart: down up ## Быстрый перезапуск
 
 start-minimal: ## Запустить только бот + БД + Redis
-	docker-compose -f $(COMPOSE_FILE_LOCAL) up -d bot postgres redis
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up -d bot postgres redis
 
 # === ОТЛАДКА ===
 
 debug: ## Запустить бота в debug режиме
-	docker-compose -f $(COMPOSE_FILE_LOCAL) run --rm $(SERVICE_NAME) python main.py
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client run --rm $(SERVICE_NAME) python main.py
 
 debug-shell: ## Запустить интерактивную оболочку Python
-	docker-compose -f $(COMPOSE_FILE_LOCAL) run --rm $(SERVICE_NAME) python -i
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client run --rm $(SERVICE_NAME) python -i
 
 # === ИНФОРМАЦИЯ ===
 
-info: ## Показать информацию о сервисах
-	@echo "=== Информация о клиентском боте ==="
-	@echo "Bot webhook: http://localhost:8081"
-	@echo "PostgreSQL: localhost:5433"
-	@echo "Redis: localhost:6380"
+info: ## Показать информацию о сервисах VPS
+	@echo "=== Информация о VPS боте ==="
+	@echo "Bot webhook: https://bot.seedancebot.com/kwork"
+	@echo "YooKassa webhook: https://bot.seedancebot.com/yookassa/webhook"
+	@echo "Health check: https://bot.seedancebot.com/kwork/health"
 	@echo ""
-	@echo "Подключение к БД:"
-	@echo "psql -h localhost -p 5433 -U botuser -d client_bot"
+	@echo "Подключение к БД (внутри контейнера):"
+	@echo "make shell-db"
 	@echo ""
-	@echo "Подключение к Redis:"
-	@echo "redis-cli -h localhost -p 6380 -a redis_pass"
+	@echo "Подключение к Redis (внутри контейнера):"
+	@echo "make shell-redis"
 	@echo ""
 	@echo "Файлы:"
 	@echo "- Конфигурация: .env.client"
@@ -186,10 +197,10 @@ info: ## Показать информацию о сервисах
 	@echo "- Ручное управление через админку бота"
 	@echo ""
 	@echo "Команды бэкапов:"
-	@echo "make -f Makefile.client backup-auto     # Создать сейчас"
-	@echo "make -f Makefile.client backup-list     # Список бэкапов"  
-	@echo "make -f Makefile.client backup-cleanup  # Очистить старые"
-	@echo "make -f Makefile.client up-backup       # Запуск с бэкапами"
+	@echo "make backup-auto     # Создать сейчас"
+	@echo "make backup-list     # Список бэкапов"  
+	@echo "make backup-cleanup  # Очистить старые"
+	@echo "make up-backup       # Запуск с бэкапами"
 
 # === МОНИТОРИНГ ===
 
@@ -198,7 +209,7 @@ stats: ## Показать статистику использования ре�
 
 top: ## Показать процессы в контейнерах
 	@echo "=== Процессы в боте ==="
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec $(SERVICE_NAME) ps aux
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec $(SERVICE_NAME) ps aux
 	@echo ""
 	@echo "=== Процессы в PostgreSQL ==="
-	docker-compose -f $(COMPOSE_FILE_LOCAL) exec postgres ps aux 
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres ps aux 

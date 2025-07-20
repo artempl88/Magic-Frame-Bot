@@ -21,17 +21,11 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./static:/app/static
-      - ./locales:/app/locales:ro
-    ports:
-      - "127.0.0.1:8081:8081"  # Webhook для бота
+      - ./backups:/app/backups
     networks:
       - client_bot_network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    ports:
+      - "8081:8081"  # Webhook для https://bot.seedancebot.com/kwork
 
   # PostgreSQL Database
   postgres:
@@ -46,8 +40,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports:
-      - "127.0.0.1:5433:5432"  # Локальный доступ к БД
     networks:
       - client_bot_network
     healthcheck:
@@ -65,29 +57,27 @@ services:
       redis-server
       --appendonly yes
       --appendfsync everysec
-      --requirepass ${REDIS_PASSWORD:-redis_pass}
+      --requirepass ${REDIS_PASSWORD}
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-    ports:
-      - "127.0.0.1:6380:6379"  # Локальный доступ к Redis
     networks:
       - client_bot_network
     healthcheck:
-      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD:-redis_pass}", "ping"]
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Celery Worker (только если нужны фоновые задачи)
+  # Celery Worker (если нужны фоновые задачи)
   celery_worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: client_celery_worker
     restart: unless-stopped
-    command: celery -A bot.tasks worker --loglevel=info --concurrency=2
+    command: celery -A bot.tasks worker --loglevel=info --concurrency=1
     env_file: .env.client
     environment:
       - PYTHONUNBUFFERED=1
@@ -124,10 +114,13 @@ services:
         # Создаем cron job для ежедневных бэкапов в 3:00
         echo '0 3 * * * pg_dump -h postgres -U $$PGUSER $$PGDATABASE | gzip > /backups/auto_backup_$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz && echo \"{\\\"created_at\\\": \\\"$$(date -Iseconds)\\\", \\\"description\\\": \\\"Автоматический ежедневный бэкап\\\", \\\"size\\\": $$(stat -c%s /backups/auto_backup_$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz), \\\"database\\\": \\\"$$PGDATABASE\\\", \\\"user\\\": \\\"$$PGUSER\\\"}\" > /backups/auto_backup_$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz.meta' > /etc/crontabs/root &&
         
-        # Создаем cron job для очистки старых бэкапов (старше 30 дней) каждый день в 4:00  
+        # Создаем cron job для очистки старых бэкапов (старше 30 дней) каждый день в 4:00
         echo '0 4 * * * find /backups -name \"auto_backup_*.sql.gz\" -mtime +30 -exec rm {} \\; && find /backups -name \"auto_backup_*.sql.gz.meta\" -mtime +30 -exec rm {} \\;' >> /etc/crontabs/root &&
         
-        # Запускаем crond
+        # Еженедельный полный бэкап по воскресеньям в 2:00
+        echo '0 2 * * 0 pg_dump -h postgres -U $$PGUSER $$PGDATABASE --verbose | gzip > /backups/weekly_backup_$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz && echo \"{\\\"created_at\\\": \\\"$$(date -Iseconds)\\\", \\\"description\\\": \\\"Еженедельный полный бэкап\\\", \\\"size\\\": $$(stat -c%s /backups/weekly_backup_$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz), \\\"database\\\": \\\"$$PGDATABASE\\\", \\\"user\\\": \\\"$$PGUSER\\\"}\" > /backups/weekly_backup_$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz.meta' >> /etc/crontabs/root &&
+        
+        # Запускаем crond в debug режиме
         crond -f -d 8
       "
     depends_on:
