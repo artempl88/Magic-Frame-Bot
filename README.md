@@ -85,7 +85,7 @@ make -f Makefile.client quick-start
 make help
 
 # Запуск на VPS
-make up        # Запустить бота на VPS (webhook: https://bot.seedancebot.com/kwork)
+make up        # Запустить бота на VPS (webhook: https://bot.seedancebot.com/magicframe)
 make up-backup # Запустить с автобэкапами
 make up-full   # Запустить с Celery Worker
 make down      # Остановить
@@ -113,7 +113,7 @@ make shell-db       # Подключиться к БД
 
 2. **Настроить webhook и ЮКассу в `.env.client`:**
    ```bash
-   # Временно настроено для https://bot.seedancebot.com/kwork
+   # Временно настроено для https://bot.seedancebot.com/magicframe
    # При необходимости добавьте ЮКассу:
    YOOKASSA_SHOP_ID=ваш_shop_id
    YOOKASSA_SECRET_KEY=ваш_secret_key
@@ -200,9 +200,9 @@ df -h
 
 **Ваш Magic Frame Bot готов к продакшену на VPS!**
 
-- 🤖 **Webhook:** https://bot.seedancebot.com/kwork (временно)
-- 💳 **ЮКасса webhook:** https://bot.seedancebot.com/yookassa/webhook  
-- 🏥 **Health check:** https://bot.seedancebot.com/kwork/health
+- 🤖 **Webhook:** https://bot.seedancebot.com/magicframe (временно)
+- 💳 **ЮКасса webhook:** https://bot.seedancebot.com/yookassa/webhook
+- 🏥 **Health check:** https://bot.seedancebot.com/magicframe/health
 - 💰 **Админка:** `/admin` в боте
 
 **Следующие шаги:**

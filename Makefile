@@ -18,7 +18,7 @@ build: ## Собрать Docker образы
 up: ## Запустить бота на VPS
 	@echo "🚀 Запуск Magic Frame Bot на VPS..."
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up -d
-	@echo "✅ Бот запущен! Webhook: https://bot.seedancebot.com/kwork"
+	@echo "✅ Бот запущен! Webhook: https://bot.seedancebot.com/magicframe"
 
 up-backup: ## Запустить с автоматическими бэкапами
 	@echo "🚀 Запуск с автоматическими бэкапами..."
@@ -72,7 +72,7 @@ ps: ## Показать статус контейнеров
 
 health: ## Проверить здоровье сервисов
 	@echo "Проверка бота..."
-	@curl -f https://bot.seedancebot.com/kwork/health || echo "❌ Bot недоступен"
+	@curl -f https://bot.seedancebot.com/magicframe/health || echo "❌ Bot недоступен"
 	@echo "Проверка PostgreSQL..."
 	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_isready -U magic_frame -d magic_frame_bot || echo "❌ PostgreSQL недоступен"
 	@echo "Проверка Redis..."
@@ -174,9 +174,9 @@ debug-shell: ## Запустить интерактивную оболочку P
 
 info: ## Показать информацию о сервисах VPS
 	@echo "=== Информация о VPS боте ==="
-	@echo "Bot webhook: https://bot.seedancebot.com/kwork"
-	@echo "YooKassa webhook: https://bot.seedancebot.com/yookassa/webhook"
-	@echo "Health check: https://bot.seedancebot.com/kwork/health"
+	@echo "Bot webhook: https://bot.seedancebot.com/magicframe"
+@echo "YooKassa webhook: https://bot.seedancebot.com/yookassa/webhook"
+@echo "Health check: https://bot.seedancebot.com/magicframe/health"
 	@echo ""
 	@echo "Подключение к БД (внутри контейнера):"
 	@echo "make shell-db"

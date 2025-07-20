@@ -3,9 +3,9 @@
 ## ✅ Обновлено:
 
 ### 🌐 **Webhook URLs (временно на seedancebot.com):**
-- **Основной webhook:** `https://bot.seedancebot.com/kwork`
+- **Основной webhook:** `https://bot.seedancebot.com/magicframe`
 - **ЮКасса webhook:** `https://bot.seedancebot.com/yookassa/webhook`
-- **Health check:** `https://bot.seedancebot.com/kwork/health`
+- **Health check:** `https://bot.seedancebot.com/magicframe/health`
 
 ### 📄 **Обновленные файлы:**
 - ✅ `docker-compose.yml` - порт 8081 для seedancebot.com
@@ -26,7 +26,7 @@
 ```bash
 # Webhook Configuration (VPS Production - ВРЕМЕННО на старом домене)
 WEBHOOK_HOST=https://bot.seedancebot.com
-WEBHOOK_PATH=/kwork
+WEBHOOK_PATH=/magicframe
 WEBHOOK_PORT=8081
 ```
 
@@ -36,11 +36,11 @@ WEBHOOK_PORT=8081
 ```bash
 make up-backup  # Запуск с автобэкапами
 make logs       # Мониторинг
-make health     # Проверка webhook (на seedancebot.com)
+make health     # Проверка webhook (на seedancebot.com/magicframe)
 ```
 
 ### **Проверка работы:**
-- 🌐 **Webhook:** https://bot.seedancebot.com/kwork/health
+- 🌐 **Webhook:** https://bot.seedancebot.com/magicframe/health
 - 💳 **ЮКасса:** https://bot.seedancebot.com/yookassa/webhook
 - 📊 **Статус:** `make health` для проверки
 

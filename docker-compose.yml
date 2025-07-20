@@ -25,7 +25,7 @@ services:
     networks:
       - magic_frame_network
     ports:
-      - "8081:8081"  # Webhook для https://bot.seedancebot.com/kwork
+      - "8081:8081"  # Webhook для https://bot.seedancebot.com/magicframe
 
   # PostgreSQL Database
   postgres:
