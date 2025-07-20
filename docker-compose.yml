@@ -99,9 +99,9 @@ services:
     container_name: magic_frame_backup_scheduler
     restart: unless-stopped
     environment:
-      - PGUSER=${DB_USER:-botuser}
+      - PGUSER=${DB_USER:-magic_frame}
       - PGPASSWORD=${DB_PASSWORD}
-      - PGDATABASE=${DB_NAME:-client_bot}
+      - PGDATABASE=${DB_NAME:-magic_frame_bot}
       - PGHOST=postgres
       - TZ=UTC
     volumes:
