@@ -18,7 +18,7 @@ build: ## Собрать Docker образы
 up: ## Запустить бота на VPS
 	@echo "🚀 Запуск Magic Frame Bot на VPS..."
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up -d
-	@echo "✅ Бот запущен! Webhook: https://bot.seedancebot.com/magicframe"
+	@echo "✅ Бот запущен! Webhook: https://chatbotan.ru/magicframe"
 
 up-backup: ## Запустить с автоматическими бэкапами
 	@echo "🚀 Запуск с автоматическими бэкапами..."
@@ -27,6 +27,35 @@ up-backup: ## Запустить с автоматическими бэкапа�
 
 up-full: ## Запустить с Celery Worker
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client --profile full up -d
+
+# === ТЕСТОВЫЕ КОМАНДЫ (МИНИМАЛЬНЫЕ РЕСУРСЫ) ===
+
+test-up: ## 🧪 Запустить в тестовом режиме (экономия ресурсов)
+	@echo "🧪 Запуск Magic Frame Bot в ТЕСТОВОМ режиме..."
+	@echo "📊 Ресурсы: PostgreSQL=1GB, Redis=128MB, без Celery/Backup"
+	docker-compose -f docker-compose.test.yml --env-file .env.client up -d
+	@echo "✅ Тестовый бот запущен! Webhook: https://chatbotan.ru/magicframe"
+	@echo "💡 Для остановки: make test-down"
+
+test-down: ## ⏹️ Остановить тестовый бот
+	@echo "⏹️ Остановка тестового бота..."
+	docker-compose -f docker-compose.test.yml down
+
+test-logs: ## 📋 Логи тестового бота
+	docker-compose -f docker-compose.test.yml logs -f --tail=100
+
+test-restart: ## 🔄 Перезапустить тестовый бот
+	@echo "🔄 Перезапуск тестового бота..."
+	docker-compose -f docker-compose.test.yml restart
+
+test-clean: ## 🧹 Очистить тестовые данные
+	@echo "🧹 Очистка тестового окружения..."
+	docker-compose -f docker-compose.test.yml down -v --remove-orphans
+	docker system prune -f
+
+test-status: ## 📊 Статус тестовых сервисов
+	@echo "📊 Статус тестовых сервисов:"
+	docker-compose -f docker-compose.test.yml ps
 
 up-foreground: ## Запустить в foreground режиме
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up
@@ -72,7 +101,7 @@ ps: ## Показать статус контейнеров
 
 health: ## Проверить здоровье сервисов
 	@echo "Проверка бота..."
-	@curl -f https://bot.seedancebot.com/magicframe/health || echo "❌ Bot недоступен"
+	@curl -f https://chatbotan.ru/magicframe/health || echo "❌ Bot недоступен"
 	@echo "Проверка PostgreSQL..."
 	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_isready -U magic_frame -d magic_frame_bot || echo "❌ PostgreSQL недоступен"
 	@echo "Проверка Redis..."
@@ -174,9 +203,9 @@ debug-shell: ## Запустить интерактивную оболочку P
 
 info: ## Показать информацию о сервисах VPS
 	@echo "=== Информация о VPS боте ==="
-	@echo "Bot webhook: https://bot.seedancebot.com/magicframe"
-@echo "YooKassa webhook: https://bot.seedancebot.com/yookassa/webhook"
-@echo "Health check: https://bot.seedancebot.com/magicframe/health"
+	@echo "Bot webhook: https://chatbotan.ru/magicframe"
+@echo "YooKassa webhook: https://chatbotan.ru/yookassa/webhook"
+@echo "Health check: https://chatbotan.ru/magicframe/health"
 	@echo ""
 	@echo "Подключение к БД (внутри контейнера):"
 	@echo "make shell-db"
