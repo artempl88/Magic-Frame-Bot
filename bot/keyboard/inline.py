@@ -279,12 +279,13 @@ def get_admin_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     builder.button(text=f"📢 {_('admin.broadcast.title')}", callback_data="admin_broadcast")
     builder.button(text=f"🎁 {_('admin.credits.title')}", callback_data="admin_give_credits")
     builder.button(text=f"🚫 {_('admin.bans.title')}", callback_data="admin_bans")
+    builder.button(text=f"💾 {_('admin.backup.title', default='Бэкапы БД')}", callback_data="admin_backup")
     builder.button(text=f"🧩 UTM Аналитика", callback_data="utm_analytics")
     builder.button(text=f"💰 {_('admin.api_balance')}", callback_data="admin_api_balance")
     builder.button(text=f"📋 {_('admin.logs.title')}", callback_data="admin_logs")
     builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     
-    builder.adjust(2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 2)
     return builder.as_markup()
 
 def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
@@ -313,6 +314,90 @@ def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     )
     
     builder.adjust(1)
+    return builder.as_markup()
+
+def get_backup_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура управления бэкапами"""
+    from bot.middlewares.i18n import i18n
+    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(
+        text=f"➕ {_('admin.backup.create', default='Создать бэкап')}",
+        callback_data="backup_create"
+    )
+    builder.button(
+        text=f"📁 {_('admin.backup.list', default='Список бэкапов')}",
+        callback_data="backup_list"
+    )
+    builder.button(
+        text=f"📊 {_('admin.backup.stats', default='Статистика')}",
+        callback_data="backup_stats"
+    )
+    builder.button(
+        text=f"🧹 {_('admin.backup.cleanup', default='Очистить старые')}",
+        callback_data="backup_cleanup"
+    )
+    builder.button(
+        text=f"◀️ {_('common.back')}",
+        callback_data="admin_panel"
+    )
+    
+    builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+def get_backup_list_keyboard(backups: list, language: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура со списком бэкапов"""
+    from bot.middlewares.i18n import i18n
+    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    
+    builder = InlineKeyboardBuilder()
+    
+    # Показываем только последние 10 бэкапов
+    for backup in backups[:10]:
+        created_at = backup['created_at'].strftime('%d.%m %H:%M')
+        size_mb = backup['size_mb']
+        button_text = f"📄 {backup['filename'][:20]}... ({size_mb:.1f}MB)"
+        
+        builder.button(
+            text=button_text,
+            callback_data=f"backup_info_{backup['filename']}"
+        )
+    
+    builder.button(
+        text=f"🔄 {_('common.refresh')}",
+        callback_data="backup_list"
+    )
+    builder.button(
+        text=f"◀️ {_('common.back')}",
+        callback_data="admin_backup"
+    )
+    
+    builder.adjust(1)
+    return builder.as_markup()
+
+def get_backup_info_keyboard(filename: str, language: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура для действий с конкретным бэкапом"""
+    from bot.middlewares.i18n import i18n
+    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(
+        text=f"🗑️ {_('admin.backup.delete', default='Удалить')}",
+        callback_data=f"backup_delete_{filename}"
+    )
+    builder.button(
+        text=f"⚠️ {_('admin.backup.restore', default='Восстановить')}",
+        callback_data=f"backup_restore_{filename}"
+    )
+    builder.button(
+        text=f"◀️ {_('common.back')}",
+        callback_data="backup_list"
+    )
+    
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 def get_cancel_keyboard(language: str = "ru") -> InlineKeyboardMarkup:

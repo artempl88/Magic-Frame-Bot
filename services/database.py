@@ -294,6 +294,9 @@ class DatabaseService:
                 )
             )
             
+            # Подсчет streak'ов (ежедневная активность)
+            current_streak, max_streak = await self._calculate_user_streaks(session, user.id)
+            
             return {
                 "user_id": user.telegram_id,
                 "registration_date": user.created_at,
@@ -309,9 +312,68 @@ class DatabaseService:
                 "referral_earnings": user.referral_earnings,
                 "last_generation": last_generation,
                 "is_premium": user.is_premium,
-                "current_streak": 0,  # TODO: Implement streak calculation
-                "max_streak": 0  # TODO: Implement streak calculation
+                "current_streak": current_streak,
+                "max_streak": max_streak
             }
+    
+    async def _calculate_user_streaks(self, session: AsyncSession, user_id: int) -> tuple[int, int]:
+        """Рассчитать текущую и максимальную полосу активности пользователя"""
+        try:
+            # Получаем даты всех генераций пользователя, сгруппированные по дням
+            result = await session.execute(
+                select(func.date(Generation.created_at).label('generation_date'))
+                .where(
+                    and_(
+                        Generation.user_id == user_id,
+                        Generation.status == GenerationStatusEnum.COMPLETED
+                    )
+                )
+                .group_by(func.date(Generation.created_at))
+                .order_by(func.date(Generation.created_at).desc())
+            )
+            
+            generation_dates = [row.generation_date for row in result.fetchall()]
+            
+            if not generation_dates:
+                return 0, 0
+            
+            # Рассчитываем текущий streak
+            current_streak = 0
+            today = datetime.utcnow().date()
+            yesterday = today - timedelta(days=1)
+            
+            # Проверяем непрерывность начиная с сегодня или вчера
+            check_date = today if today in generation_dates else yesterday
+            
+            for date in generation_dates:
+                if date == check_date:
+                    current_streak += 1
+                    check_date -= timedelta(days=1)
+                elif date < check_date:
+                    # Пропуск в активности
+                    break
+            
+            # Рассчитываем максимальный streak
+            max_streak = 0
+            temp_streak = 0
+            prev_date = None
+            
+            # Сортируем даты по возрастанию для подсчета максимального streak
+            sorted_dates = sorted(generation_dates)
+            
+            for date in sorted_dates:
+                if prev_date is None or date == prev_date + timedelta(days=1):
+                    temp_streak += 1
+                    max_streak = max(max_streak, temp_streak)
+                else:
+                    temp_streak = 1
+                prev_date = date
+            
+            return current_streak, max_streak
+            
+        except Exception as e:
+            logger.error(f"Error calculating user streaks: {e}")
+            return 0, 0
     
     # ========== Generation методы ==========
     
