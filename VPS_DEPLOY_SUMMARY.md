@@ -1,13 +1,13 @@
-# 🚀 VPS Конфигурация готова!
+# 🪄 Magic Frame Bot - VPS Конфигурация готова!
 
-Все настроено для развертывания на VPS с webhook: **https://bot.seedancebot.com/kwork**
+Все настроено для развертывания на VPS с webhook: **https://bot.magicframebot.com/kwork**
 
 ## ✅ Что настроено:
 
 ### 🌐 **Webhook конфигурация:**
-- **Основной webhook:** `https://bot.seedancebot.com/kwork`
-- **ЮКасса webhook:** `https://bot.seedancebot.com/yookassa/webhook`
-- **Health check:** `https://bot.seedancebot.com/kwork/health`
+- **Основной webhook:** `https://bot.magicframebot.com/kwork`
+- **ЮКасса webhook:** `https://bot.magicframebot.com/yookassa/webhook`
+- **Health check:** `https://bot.magicframebot.com/kwork/health`
 - **Порт:** `8081` (открыт для внешнего доступа)
 
 ### 📄 **Файлы конфигурации:**
@@ -52,7 +52,7 @@ make restart    # Перезапуск
   YOOKASSA_SECRET_KEY=ваш_secret_key
   ENABLE_YOOKASSA=true
   ```
-- 📝 Настроить webhook в ЮКассе: `https://bot.seedancebot.com/yookassa/webhook`
+- 📝 Настроить webhook в ЮКассе: `https://bot.magicframebot.com/yookassa/webhook`
 
 ## 🎛️ **Админ-панель:**
 
@@ -72,7 +72,7 @@ sh get-docker.sh
 
 # Клонировать репозиторий  
 git clone <repo-url>
-cd Seedance
+cd MagicFrameBot
 ```
 
 ### **2. Настройка:**
@@ -100,7 +100,7 @@ make logs
 ```nginx
 server {
     listen 80;
-    server_name bot.seedancebot.com;
+    server_name bot.magicframebot.com;
     
     location /kwork {
         proxy_pass http://127.0.0.1:8081;
@@ -123,14 +123,14 @@ server {
 ### **SSL сертификат:**
 ```bash
 # Установить Certbot
-certbot --nginx -d bot.seedancebot.com
+certbot --nginx -d bot.magicframebot.com
 ```
 
 ## 📊 **Мониторинг:**
 
 ### **Проверка работы:**
-- 🌐 **Webhook:** https://bot.seedancebot.com/kwork/health
-- 💳 **ЮКасса:** https://bot.seedancebot.com/yookassa/webhook
+- 🌐 **Webhook:** https://bot.magicframebot.com/kwork/health
+- 💳 **ЮКасса:** https://bot.magicframebot.com/yookassa/webhook
 - 🤖 **Telegram:** отправить `/start` боту
 
 ### **Логи и статус:**
@@ -155,9 +155,9 @@ make stats
 
 ## 🎉 **Готово к продакшену!**
 
-**Ваш Seedance Bot полностью настроен для VPS:**
+**Ваш Magic Frame Bot полностью настроен для VPS:**
 
-- 🚀 **Готов к деплою** на https://bot.seedancebot.com/kwork
+- 🚀 **Готов к деплою** на https://bot.magicframebot.com/kwork
 - 💳 **Двойная платежная система** (Stars + ЮКасса)
 - 🎛️ **Админ-панель** для управления
 - 💾 **Автоматические бэкапы** для защиты данных

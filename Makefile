@@ -16,7 +16,7 @@ build: ## Собрать Docker образы
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client build
 
 up: ## Запустить бота на VPS
-	@echo "🚀 Запуск Seedance Bot на VPS..."
+	@echo "🚀 Запуск Magic Frame Bot на VPS..."
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client up -d
 	@echo "✅ Бот запущен! Webhook: https://bot.seedancebot.com/kwork"
 
@@ -57,7 +57,7 @@ shell-bot: ## Войти в контейнер бота
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec $(SERVICE_NAME) /bin/bash
 
 shell-db: ## Войти в PostgreSQL
-	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres psql -U seedance -d seedance_bot
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres psql -U magic_frame -d magic_frame_bot
 
 shell-redis: ## Войти в Redis CLI
 	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec redis redis-cli -a RagnarLothbrok2021!
@@ -74,7 +74,7 @@ health: ## Проверить здоровье сервисов
 	@echo "Проверка бота..."
 	@curl -f https://bot.seedancebot.com/kwork/health || echo "❌ Bot недоступен"
 	@echo "Проверка PostgreSQL..."
-	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_isready -U seedance -d seedance_bot || echo "❌ PostgreSQL недоступен"
+	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_isready -U magic_frame -d magic_frame_bot || echo "❌ PostgreSQL недоступен"
 	@echo "Проверка Redis..."
 	@docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec redis redis-cli -a RagnarLothbrok2021! ping || echo "❌ Redis недоступен"
 
@@ -82,7 +82,7 @@ health: ## Проверить здоровье сервисов
 
 backup: ## Создать резервную копию БД
 	@mkdir -p ./backups
-	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_dump -U seedance seedance_bot | gzip > ./backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres pg_dump -U magic_frame magic_frame_bot | gzip > ./backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
 	@echo "Резервная копия создана в ./backups/"
 
 restore: ## Восстановить БД из последней резервной копии
@@ -92,13 +92,13 @@ restore: ## Восстановить БД из последней резервн
 
 restore-file: ## Восстановить из конкретного файла (укажите BACKUP_FILE=path)
 	@if [ -z "$(BACKUP_FILE)" ]; then echo "Укажите BACKUP_FILE=path"; exit 1; fi
-	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres dropdb -U seedance seedance_bot || true
-	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres createdb -U seedance seedance_bot
-	gunzip -c $(BACKUP_FILE) | docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec -T postgres psql -U seedance seedance_bot
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres dropdb -U magic_frame magic_frame_bot || true
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres createdb -U magic_frame magic_frame_bot
+	gunzip -c $(BACKUP_FILE) | docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec -T postgres psql -U magic_frame magic_frame_bot
 
 backup-auto: ## Создать автоматический бэкап прямо сейчас
 	@echo "Создание внепланового автоматического бэкапа..."
-	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres sh -c 'pg_dump -U seedance seedance_bot | gzip > /backups/manual_backup_$$(date +%Y%m%d_%H%M%S).sql.gz'
+	docker-compose -f $(COMPOSE_FILE) --env-file .env.client exec postgres sh -c 'pg_dump -U magic_frame magic_frame_bot | gzip > /backups/manual_backup_$$(date +%Y%m%d_%H%M%S).sql.gz'
 	@echo "✅ Автоматический бэкап создан"
 
 backup-cleanup: ## Очистить старые бэкапы (старше 30 дней)
@@ -205,7 +205,7 @@ info: ## Показать информацию о сервисах VPS
 # === МОНИТОРИНГ ===
 
 stats: ## Показать статистику использования ресурсов
-	docker stats client_bot client_postgres client_redis --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
+	docker stats magic_frame_bot magic_frame_postgres magic_frame_redis --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
 
 top: ## Показать процессы в контейнерах
 	@echo "=== Процессы в боте ==="

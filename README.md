@@ -1,4 +1,4 @@
-# 🤖 Seedance Bot - VPS версия
+# 🪄 Magic Frame Bot - VPS версия
 
 AI бот для генерации видео готовый к продакшн развертыванию на VPS с поддержкой Telegram Stars и ЮКассы.
 
@@ -108,12 +108,12 @@ make shell-db       # Подключиться к БД
 1. **Клонировать репозиторий:**
    ```bash
    git clone <repo-url>
-   cd Seedance
+   cd MagicFrameBot
    ```
 
 2. **Настроить webhook и ЮКассу в `.env.client`:**
    ```bash
-   # Уже настроено для https://bot.seedancebot.com/kwork
+   # Временно настроено для https://bot.seedancebot.com/kwork
    # При необходимости добавьте ЮКассу:
    YOOKASSA_SHOP_ID=ваш_shop_id
    YOOKASSA_SECRET_KEY=ваш_secret_key
@@ -198,9 +198,9 @@ df -h
 
 ## 🎉 Готово!
 
-**Ваш Seedance Bot готов к продакшену на VPS!**
+**Ваш Magic Frame Bot готов к продакшену на VPS!**
 
-- 🤖 **Webhook:** https://bot.seedancebot.com/kwork
+- 🤖 **Webhook:** https://bot.seedancebot.com/kwork (временно)
 - 💳 **ЮКасса webhook:** https://bot.seedancebot.com/yookassa/webhook  
 - 🏥 **Health check:** https://bot.seedancebot.com/kwork/health
 - 💰 **Админка:** `/admin` в боте

@@ -64,7 +64,7 @@ class YooKassaService:
                     "user_id": str(user_id),
                     "package_id": package_id,
                     "transaction_id": str(transaction_id),
-                    "source": "seedance_bot"
+                    "source": "magic_frame_bot"
                 }
             }, idempotency_key)
             

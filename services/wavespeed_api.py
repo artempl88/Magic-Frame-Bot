@@ -536,4 +536,4 @@ async def format_model_name(model: str) -> str:
         if part.endswith("p"):
             resolution = part.upper()
     
-    return f"Seedance {version} {model_type} {mode} {resolution}"
+            return f"Magic Frame {version} {model_type} {mode} {resolution}"

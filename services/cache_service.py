@@ -17,7 +17,7 @@ class CacheService:
     def __init__(self, redis_url: str = None, prefix: str = None):
         self.redis_url = redis_url or settings.REDIS_URL
         self._redis: Optional[redis.Redis] = None
-        self.prefix = prefix or getattr(settings, 'CACHE_PREFIX', 'seedance')
+        self.prefix = prefix or getattr(settings, 'CACHE_PREFIX', 'magic_frame')
         self._connection_retries = 3
         self._connection_timeout = 5
     

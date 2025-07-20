@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: client_bot
+    container_name: magic_frame_bot
     restart: unless-stopped
     env_file: .env.client
     environment:
@@ -23,27 +23,27 @@ services:
       - ./static:/app/static
       - ./backups:/app/backups
     networks:
-      - client_bot_network
+      - magic_frame_network
     ports:
       - "8081:8081"  # Webhook для https://bot.seedancebot.com/kwork
 
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: client_postgres
+    container_name: magic_frame_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-client_bot}
-      POSTGRES_USER: ${DB_USER:-botuser}
+      POSTGRES_DB: ${DB_NAME:-magic_frame_bot}
+      POSTGRES_USER: ${DB_USER:-magic_frame}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      - client_bot_network
+      - magic_frame_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-botuser} -d ${DB_NAME:-client_bot}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-magic_frame} -d ${DB_NAME:-magic_frame_bot}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -51,7 +51,7 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: client_redis
+    container_name: magic_frame_redis
     restart: unless-stopped
     command: >
       redis-server
@@ -63,7 +63,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - client_bot_network
+      - magic_frame_network
     healthcheck:
       test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -75,7 +75,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: client_celery_worker
+    container_name: magic_frame_celery_worker
     restart: unless-stopped
     command: celery -A bot.tasks worker --loglevel=info --concurrency=1
     env_file: .env.client
@@ -89,14 +89,14 @@ services:
       - ./logs:/app/logs
       - ./static:/app/static
     networks:
-      - client_bot_network
+      - magic_frame_network
     profiles:
       - full  # Запускается только с профилем --profile full
 
   # Автоматические бэкапы (каждый день в 3:00)
   backup_scheduler:
     image: postgres:16-alpine
-    container_name: client_backup_scheduler
+    container_name: magic_frame_backup_scheduler
     restart: unless-stopped
     environment:
       - PGUSER=${DB_USER:-botuser}
@@ -126,12 +126,12 @@ services:
     depends_on:
       - postgres
     networks:
-      - client_bot_network
+      - magic_frame_network
     profiles:
       - backup  # Запускается только с профилем --profile backup
 
 networks:
-  client_bot_network:
+  magic_frame_network:
     driver: bridge
     ipam:
       config:
