@@ -18,12 +18,15 @@
 - ✅ **Celery Worker** - фоновые задачи (опционально)
 - ✅ **Автоматические бэкапы** - резервное копирование БД
 
-## 🚫 Что убрано (для упрощения)
+## 🧹 Очищено от лишних компонентов
 
-- ❌ Nginx (используйте системный)
-- ❌ Prometheus/Grafana (мониторинг)
-- ❌ Flower (мониторинг Celery)
-- ❌ Celery Beat (периодические задачи)
+- ❌ Nginx - веб-сервер (не нужен для простого бота)
+- ❌ Grafana - мониторинг и дашборды
+- ❌ Prometheus - система метрик  
+- ❌ Flower - мониторинг Celery
+- ❌ Старые скрипты и конфигурации
+
+📋 Подробности в [DOCKER_CLEANUP_SUMMARY.md](DOCKER_CLEANUP_SUMMARY.md)
 
 ## ⚡ Быстрый старт
 
@@ -79,19 +82,21 @@ make -f Makefile.client quick-start
 make -f Makefile.client help
 
 # Запуск/остановка
-make -f Makefile.client up      # Запустить
-make -f Makefile.client down    # Остановить
-make -f Makefile.client restart # Перезапустить
+make -f Makefile.client up        # Запустить локально
+make -f Makefile.client up-backup # Запустить с автобэкапами
+make -f Makefile.client down      # Остановить
+make -f Makefile.client restart   # Перезапустить
 
 # Мониторинг
-make -f Makefile.client status  # Статус сервисов
+make -f Makefile.client ps      # Статус сервисов
 make -f Makefile.client logs    # Логи
 make -f Makefile.client health  # Проверка здоровья
 
 # База данных и бэкапы
-make -f Makefile.client backup-auto  # Создать бэкап сейчас
-make -f Makefile.client backup-list  # Список бэкапов
-make -f Makefile.client shell-db     # Подключиться к БД
+make -f Makefile.client backup-auto    # Создать бэкап сейчас
+make -f Makefile.client backup-list    # Список бэкапов  
+make -f Makefile.client backup-cleanup # Очистить старые
+make -f Makefile.client shell-db       # Подключиться к БД
 ```
 
 ## 🌐 Развертывание на VPS
@@ -100,39 +105,28 @@ make -f Makefile.client shell-db     # Подключиться к БД
 # Запуск на продакшн сервере
 make -f Makefile.client vps-up
 
-# С фоновыми задачами
+# С фоновыми задачами  
 make -f Makefile.client vps-up-full
 
 # С автоматическими бэкапами
 make -f Makefile.client vps-up-backup
+
+# Остановка
+make -f Makefile.client vps-down
 ```
 
-## 🔧 Настройка веб-сервера
+## 🔧 Webhook для VPS (опционально)
 
-### Nginx
+Для продакшн развертывания на VPS с доменом настройте webhook в `.env.client`:
 
-```nginx
-server {
-    listen 80;
-    server_name yourdomain.com;
-    
-    location / {
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+```bash
+# Webhook настройки
+WEBHOOK_HOST=https://yourdomain.com
+WEBHOOK_PATH=/webhook
+WEBHOOK_PORT=8081
 ```
 
-### Caddy
-
-```
-yourdomain.com {
-    reverse_proxy localhost:8081
-}
-```
+Telegram будет отправлять обновления напрямую на ваш бот.
 
 ## 📞 Помощь
 
