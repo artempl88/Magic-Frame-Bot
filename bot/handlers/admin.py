@@ -31,6 +31,11 @@ class AdminStates(StatesGroup):
     user_search = State()
     backup_description = State()
     backup_restore_confirm = State()
+    
+    # Управление ценами
+    price_edit_stars = State()
+    price_edit_rub = State()
+    price_edit_note = State()
 
 router = Router(name="admin")
 
@@ -853,6 +858,461 @@ async def cancel_backup_restore(message: Message, state: FSMContext):
         "✅ <b>Восстановление отменено</b>\n\nВозвращаю в меню бэкапов.",
         reply_markup=get_backup_keyboard(user.language_code or 'ru')
     )
+
+# ===============================
+# УПРАВЛЕНИЕ ЦЕНАМИ
+# ===============================
+
+@router.callback_query(F.data == "admin_prices")
+@admin_only
+async def show_price_management(callback: CallbackQuery):
+    """Показать меню управления ценами"""
+    user, _ = await BaseHandler.get_user_and_translator(callback)
+    
+    text = """
+💰 <b>Управление ценами пакетов</b>
+
+Здесь вы можете:
+• Просматривать текущие цены
+• Изменять цены для Stars и ЮКассы
+• Просматривать историю изменений
+• Настраивать интеграцию с ЮКассой
+
+Выберите действие:
+"""
+    
+    from bot.keyboard.inline import get_price_management_keyboard
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_price_management_keyboard(user.language_code or 'ru')
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "price_view")
+@admin_only
+async def show_current_prices(callback: CallbackQuery):
+    """Показать текущие цены"""
+    try:
+        from services.price_service import price_service
+        from core.constants import CREDIT_PACKAGES
+        
+        # Получаем все цены из БД
+        prices = await price_service.get_package_prices()
+        
+        text = "💰 <b>Текущие цены пакетов</b>\n\n"
+        
+        for package in CREDIT_PACKAGES:
+            package_data = prices.get(package.id, {})
+            
+            # Цена в Stars
+            stars_price = package_data.get("stars_price", package.stars)
+            stars_status = "💡 кастомная" if package_data.get("id") else "📋 дефолтная"
+            
+            # Цена в рублях
+            rub_price = package_data.get("rub_price")
+            rub_text = f"{rub_price:.2f} ₽" if rub_price else "не установлена"
+            
+            text += f"{package.emoji} <b>{package.name}</b>\n"
+            text += f"   🎬 {package.credits} кредитов\n"
+            text += f"   ⭐ {stars_price} Stars ({stars_status})\n"
+            text += f"   💳 {rub_text}\n\n"
+        
+        # Статус ЮКассы
+        from services.yookassa_service import yookassa_service
+        yookassa_status = "✅ настроена" if yookassa_service.is_available() else "❌ не настроена"
+        text += f"🏪 <b>ЮКасса:</b> {yookassa_status}\n"
+        
+        from bot.keyboard.inline import get_price_management_keyboard
+        user, _ = await BaseHandler.get_user_and_translator(callback)
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_price_management_keyboard(user.language_code or 'ru')
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error showing prices: {e}")
+        await callback.answer("❌ Ошибка загрузки цен", show_alert=True)
+
+@router.callback_query(F.data == "price_edit")
+@admin_only
+async def show_package_selection(callback: CallbackQuery):
+    """Показать выбор пакета для редактирования"""
+    user, _ = await BaseHandler.get_user_and_translator(callback)
+    
+    text = """
+✏️ <b>Редактирование цен</b>
+
+Выберите пакет для изменения цен:
+"""
+    
+    from bot.keyboard.inline import get_package_edit_keyboard
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_package_edit_keyboard(user.language_code or 'ru')
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("price_edit_"))
+@admin_only
+async def show_package_edit_options(callback: CallbackQuery):
+    """Показать опции редактирования пакета"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    try:
+        from services.price_service import price_service
+        from core.constants import CREDIT_PACKAGES
+        
+        # Находим пакет
+        package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+        if not package:
+            await callback.answer("❌ Пакет не найден", show_alert=True)
+            return
+        
+        # Получаем текущие цены
+        prices = await price_service.get_package_prices(package_id)
+        price_data = prices.get(package_id, {})
+        
+        # Цены
+        stars_price = price_data.get("stars_price", package.stars)
+        rub_price = price_data.get("rub_price")
+        notes = price_data.get("notes", "")
+        is_custom = price_data.get("id") is not None
+        
+        text = f"""
+✏️ <b>Редактирование пакета</b>
+
+{package.emoji} <b>{package.name}</b>
+🎬 {package.credits} кредитов
+
+<b>Текущие цены:</b>
+⭐ Stars: {stars_price} {"(кастомная)" if is_custom else "(дефолтная)"}
+💳 Рубли: {f"{rub_price:.2f} ₽" if rub_price else "не установлена"}
+
+<b>Заметки:</b> {notes or "отсутствуют"}
+
+Выберите что изменить:
+"""
+        
+        from bot.keyboard.inline import get_price_edit_options_keyboard
+        user, _ = await BaseHandler.get_user_and_translator(callback)
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_price_edit_options_keyboard(package_id, user.language_code or 'ru')
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error showing package edit options: {e}")
+        await callback.answer("❌ Ошибка загрузки данных", show_alert=True)
+
+@router.callback_query(F.data.startswith("price_stars_"))
+@admin_only
+async def start_edit_stars_price(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование цены в Stars"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    from core.constants import CREDIT_PACKAGES
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        await callback.answer("❌ Пакет не найден", show_alert=True)
+        return
+    
+    # Сохраняем package_id в состоянии
+    await state.update_data(package_id=package_id)
+    await state.set_state(AdminStates.price_edit_stars)
+    
+    text = f"""
+⭐ <b>Изменение цены в Telegram Stars</b>
+
+{package.emoji} <b>{package.name}</b> ({package.credits} кредитов)
+
+Введите новую цену в Stars:
+(текущая цена: {package.stars} Stars)
+
+Отправьте /cancel для отмены.
+"""
+    
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+@router.message(AdminStates.price_edit_stars)
+@admin_only
+async def process_stars_price_edit(message: Message, state: FSMContext):
+    """Обработка изменения цены в Stars"""
+    try:
+        # Получаем цену
+        stars_price = int(message.text.strip())
+        
+        if stars_price <= 0:
+            await message.answer("❌ Цена должна быть положительным числом")
+            return
+        
+        if stars_price > 10000:
+            await message.answer("❌ Слишком большая цена (максимум 10000 Stars)")
+            return
+        
+        # Получаем данные из состояния
+        data = await state.get_data()
+        package_id = data.get("package_id")
+        
+        # Обновляем цену
+        from services.price_service import price_service
+        success, message_text = await price_service.update_package_price(
+            package_id=package_id,
+            stars_price=stars_price,
+            admin_id=message.from_user.id
+        )
+        
+        if success:
+            await message.answer(f"✅ {message_text}")
+            # Возвращаем к опциям редактирования
+            from bot.keyboard.inline import get_price_edit_options_keyboard
+            user, _ = await BaseHandler.get_user_and_translator(message)
+            
+            await message.answer(
+                "Цена обновлена. Выберите следующее действие:",
+                reply_markup=get_price_edit_options_keyboard(package_id, user.language_code or 'ru')
+            )
+        else:
+            await message.answer(f"❌ Ошибка: {message_text}")
+        
+        await state.clear()
+        
+    except ValueError:
+        await message.answer("❌ Введите корректное число")
+    except Exception as e:
+        logger.error(f"Error processing stars price edit: {e}")
+        await message.answer("❌ Ошибка обработки")
+        await state.clear()
+
+@router.callback_query(F.data.startswith("price_rub_"))
+@admin_only
+async def start_edit_rub_price(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование цены в рублях"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    from core.constants import CREDIT_PACKAGES
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        await callback.answer("❌ Пакет не найден", show_alert=True)
+        return
+    
+    # Сохраняем package_id в состоянии
+    await state.update_data(package_id=package_id)
+    await state.set_state(AdminStates.price_edit_rub)
+    
+    text = f"""
+💳 <b>Изменение цены в рублях (ЮКасса)</b>
+
+{package.emoji} <b>{package.name}</b> ({package.credits} кредитов)
+
+Введите новую цену в рублях:
+Например: 150.50
+
+Отправьте /cancel для отмены.
+"""
+    
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+@router.message(AdminStates.price_edit_rub)
+@admin_only
+async def process_rub_price_edit(message: Message, state: FSMContext):
+    """Обработка изменения цены в рублях"""
+    try:
+        from decimal import Decimal
+        
+        # Получаем цену
+        rub_price = Decimal(message.text.strip().replace(",", "."))
+        
+        if rub_price <= 0:
+            await message.answer("❌ Цена должна быть положительным числом")
+            return
+        
+        if rub_price > 100000:
+            await message.answer("❌ Слишком большая цена (максимум 100000 ₽)")
+            return
+        
+        # Получаем данные из состояния
+        data = await state.get_data()
+        package_id = data.get("package_id")
+        
+        # Обновляем цену
+        from services.price_service import price_service
+        success, message_text = await price_service.update_package_price(
+            package_id=package_id,
+            rub_price=rub_price,
+            admin_id=message.from_user.id
+        )
+        
+        if success:
+            await message.answer(f"✅ {message_text}")
+            # Возвращаем к опциям редактирования
+            from bot.keyboard.inline import get_price_edit_options_keyboard
+            user, _ = await BaseHandler.get_user_and_translator(message)
+            
+            await message.answer(
+                "Цена обновлена. Выберите следующее действие:",
+                reply_markup=get_price_edit_options_keyboard(package_id, user.language_code or 'ru')
+            )
+        else:
+            await message.answer(f"❌ Ошибка: {message_text}")
+        
+        await state.clear()
+        
+    except (ValueError, Exception) as e:
+        if isinstance(e, ValueError):
+            await message.answer("❌ Введите корректную цену в формате 150.50")
+        else:
+            logger.error(f"Error processing rub price edit: {e}")
+            await message.answer("❌ Ошибка обработки")
+        await state.clear()
+
+@router.callback_query(F.data.startswith("price_delete_"))
+@admin_only
+async def delete_custom_price(callback: CallbackQuery):
+    """Удалить кастомную цену пакета"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    try:
+        from services.price_service import price_service
+        
+        success, message_text = await price_service.delete_package_price(
+            package_id=package_id,
+            admin_id=callback.from_user.id
+        )
+        
+        if success:
+            await callback.answer(f"✅ {message_text}", show_alert=True)
+            # Обновляем опции редактирования
+            from bot.keyboard.inline import get_price_edit_options_keyboard
+            user, _ = await BaseHandler.get_user_and_translator(callback)
+            
+            # Получаем обновленные данные пакета
+            from core.constants import CREDIT_PACKAGES
+            package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+            
+            text = f"""
+✏️ <b>Редактирование пакета</b>
+
+{package.emoji} <b>{package.name}</b>
+🎬 {package.credits} кредитов
+
+<b>Текущие цены:</b>
+⭐ Stars: {package.stars} (дефолтная)
+💳 Рубли: не установлена
+
+<b>Заметки:</b> отсутствуют
+
+Выберите что изменить:
+"""
+            
+            await callback.message.edit_text(
+                text,
+                reply_markup=get_price_edit_options_keyboard(package_id, user.language_code or 'ru')
+            )
+        else:
+            await callback.answer(f"❌ {message_text}", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Error deleting custom price: {e}")
+        await callback.answer("❌ Ошибка удаления", show_alert=True)
+
+@router.callback_query(F.data == "price_yookassa")
+@admin_only
+async def show_yookassa_settings(callback: CallbackQuery):
+    """Показать настройки ЮКассы"""
+    try:
+        from services.yookassa_service import yookassa_service
+        from core.config import settings
+        
+        # Проверяем статус ЮКассы
+        is_configured = yookassa_service.is_available()
+        
+        shop_id_status = "✅ настроен" if settings.YOOKASSA_SHOP_ID else "❌ не настроен"
+        secret_status = "✅ настроен" if settings.YOOKASSA_SECRET_KEY else "❌ не настроен"
+        enabled_status = "✅ включена" if settings.ENABLE_YOOKASSA else "❌ отключена"
+        
+        text = f"""
+💳 <b>Настройки ЮКассы</b>
+
+<b>Статус интеграции:</b> {"✅ работает" if is_configured else "❌ не работает"}
+
+<b>Конфигурация:</b>
+• Shop ID: {shop_id_status}
+• Secret Key: {secret_status}  
+• Включена: {enabled_status}
+
+<b>Настройка:</b>
+Для работы ЮКассы добавьте в .env.client:
+
+<code>YOOKASSA_SHOP_ID=ваш_shop_id
+YOOKASSA_SECRET_KEY=ваш_secret_key
+ENABLE_YOOKASSA=true</code>
+
+<b>Webhook URL:</b>
+{settings.YOOKASSA_WEBHOOK_ENDPOINT or "не настроен"}
+
+Настройте этот URL в личном кабинете ЮКассы для получения уведомлений о платежах.
+"""
+        
+        from bot.keyboard.inline import get_price_management_keyboard
+        user, _ = await BaseHandler.get_user_and_translator(callback)
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_price_management_keyboard(user.language_code or 'ru')
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error showing YooKassa settings: {e}")
+        await callback.answer("❌ Ошибка загрузки настроек", show_alert=True)
+
+@router.callback_query(F.data == "price_history")
+@admin_only
+async def show_price_history(callback: CallbackQuery):
+    """Показать историю изменения цен"""
+    try:
+        from services.price_service import price_service
+        
+        history = await price_service.get_price_history()
+        
+        if not history:
+            text = "📈 <b>История изменения цен</b>\n\nИстория пуста. Цены еще не изменялись."
+        else:
+            text = "📈 <b>История изменения цен</b>\n\n"
+            
+            for record in history[:10]:  # Показываем последние 10 записей
+                status = "✅ активна" if record["is_active"] else "❌ удалена"
+                stars_price = record.get("stars_price", "—")
+                rub_price = f"{record['rub_price']:.2f} ₽" if record.get("rub_price") else "—"
+                date = record["updated_at"].strftime("%d.%m.%Y %H:%M") if record.get("updated_at") else "—"
+                
+                text += f"📦 <b>{record['package_id']}</b> ({status})\n"
+                text += f"   ⭐ {stars_price} Stars | 💳 {rub_price}\n"
+                text += f"   📅 {date}\n"
+                if record.get("notes"):
+                    text += f"   📝 {record['notes'][:50]}{'...' if len(record['notes']) > 50 else ''}\n"
+                text += "\n"
+        
+        from bot.keyboard.inline import get_price_management_keyboard
+        user, _ = await BaseHandler.get_user_and_translator(callback)
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_price_management_keyboard(user.language_code or 'ru')
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error showing price history: {e}")
+        await callback.answer("❌ Ошибка загрузки истории", show_alert=True)
 
 @router.callback_query(F.data == "admin_panel")
 @admin_only  

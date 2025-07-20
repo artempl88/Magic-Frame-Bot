@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, JSON, Float, Text, ForeignKey, Index, Enum
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, JSON, Float, Text, ForeignKey, Index, Enum, Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -172,9 +172,18 @@ class Transaction(Base):
     
     # Платежная информация
     stars_paid = Column(Integer, nullable=True)  # Оплачено Stars
+    rub_paid = Column(Numeric(10, 2), nullable=True)  # Оплачено рублей (ЮКасса)
     package_id = Column(String(50), nullable=True)
+    payment_method = Column(String(20), default='telegram_stars')  # telegram_stars, yookassa
+    
+    # Telegram Stars платежи
     payment_id = Column(String(100), nullable=True)  # Telegram payment ID
     telegram_charge_id = Column(String(200), nullable=True, index=True)  # Для возвратов
+    
+    # YooKassa платежи
+    yookassa_payment_id = Column(String(100), nullable=True, index=True)  # ID платежа в ЮКассе
+    yookassa_status = Column(String(50), nullable=True)  # succeeded, canceled, pending, waiting_for_capture
+    yookassa_receipt_url = Column(String(500), nullable=True)  # Ссылка на чек
     
     # Связанные объекты
     generation_id = Column(Integer, ForeignKey('generations.id'), nullable=True)
@@ -506,4 +515,34 @@ class UTMEvent(Base):
         Index('idx_utm_event_date', 'event_at'),
         Index('idx_utm_event_click', 'click_id'),
         Index('idx_utm_event_session', 'session_id'),
+    )
+
+class PackagePrice(Base):
+    """Управление ценами пакетов кредитов"""
+    __tablename__ = 'package_prices'
+    
+    id = Column(Integer, primary_key=True)
+    package_id = Column(String(50), nullable=False, index=True)  # pack_50, pack_100, etc.
+    
+    # Цены
+    stars_price = Column(Integer, nullable=True)  # Цена в Telegram Stars
+    rub_price = Column(Numeric(10, 2), nullable=True)  # Цена в рублях (ЮКасса)
+    
+    # Метаданные
+    is_active = Column(Boolean, default=True, index=True)
+    created_by = Column(Integer, nullable=True)  # ID админа который создал
+    updated_by = Column(Integer, nullable=True)  # ID админа который обновил
+    
+    # Даты
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Дополнительные поля
+    notes = Column(Text, nullable=True)  # Заметки админа
+    
+    # Индексы для быстрого поиска
+    __table_args__ = (
+        Index('idx_package_price_package', 'package_id'),
+        Index('idx_package_price_active', 'is_active'),
+        Index('idx_package_price_created', 'created_at'),
     )

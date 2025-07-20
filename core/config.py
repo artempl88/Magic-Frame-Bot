@@ -107,6 +107,19 @@ class Settings(BaseSettings):
     PAYMENT_PROVIDER_TOKEN: Optional[str] = None  # Для других платежных систем (не Stars)
     ENABLE_TELEGRAM_STARS: bool = True
     
+    # YooKassa (ЮКасса)
+    YOOKASSA_SHOP_ID: Optional[str] = None
+    YOOKASSA_SECRET_KEY: Optional[str] = None
+    ENABLE_YOOKASSA: bool = False
+    YOOKASSA_WEBHOOK_URL: Optional[str] = None  # URL для получения уведомлений от ЮКассы
+    
+    @property
+    def YOOKASSA_WEBHOOK_ENDPOINT(self) -> Optional[str]:
+        """Полный URL для webhook ЮКассы"""
+        if self.WEBHOOK_HOST and self.YOOKASSA_WEBHOOK_URL:
+            return f"{self.WEBHOOK_HOST}/yookassa/webhook"
+        return None
+    
     # Files
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10 MB
     ALLOWED_IMAGE_TYPES: List[str] = ["image/jpeg", "image/jpg", "image/png"]

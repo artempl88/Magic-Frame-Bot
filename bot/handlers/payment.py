@@ -167,16 +167,29 @@ async def show_special_offers(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("pay_"))
 async def process_payment(callback: CallbackQuery, bot: Bot):
-    """Обработка оплаты пакета"""
+    """Обработка оплаты пакета - показать выбор способа оплаты"""
     package_id = callback.data.split("_", 1)[1]
     
-    # Находим пакет
-    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
-    if not package:
-        await callback.answer(_('shop.package_not_found'), show_alert=True)
-        return
+    # Проверяем есть ли выбор способов оплаты
+    from services.yookassa_service import yookassa_service
+    from services.price_service import price_service
     
-    await create_invoice(callback, bot, package.credits, package.stars, package.name, package_id)
+    # Получаем доступные способы оплаты
+    stars_available = await price_service.get_effective_price(package_id, "telegram_stars")
+    yookassa_available = yookassa_service.is_available() and await price_service.get_effective_price(package_id, "yookassa")
+    
+    if stars_available and yookassa_available:
+        # Есть выбор - показываем выбор способа оплаты
+        await choose_payment_method(callback)
+    elif stars_available:
+        # Только Stars
+        await pay_with_stars(callback, bot)
+    elif yookassa_available:
+        # Только ЮКасса
+        await pay_with_yookassa(callback, bot)
+    else:
+        # Ни один способ не доступен
+        await callback.answer("❌ Способы оплаты не настроены", show_alert=True)
 
 @router.callback_query(F.data.startswith("special_"))
 async def process_special_offer(callback: CallbackQuery, bot: Bot):
@@ -200,7 +213,7 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot):
         )
         return
     
-    await create_invoice(
+    await create_stars_invoice(
         callback, bot,
         offer['credits'],
         offer['stars'],
@@ -209,7 +222,114 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot):
         is_special=True
     )
 
-async def create_invoice(
+@router.callback_query(F.data.startswith("payment_method_"))
+async def choose_payment_method(callback: CallbackQuery):
+    """Выбор способа оплаты"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    # Находим пакет
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        return
+    
+    user = await db.get_user(callback.from_user.id)
+    if not user:
+        await callback.answer(_('errors.user_not_found'), show_alert=True)
+        return
+    
+    user_lang = user.language_code or 'ru'
+    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
+    
+    # Получаем цены для разных способов оплаты
+    from services.price_service import price_service
+    stars_price = await price_service.get_effective_price(package_id, "telegram_stars")
+    rub_price = await price_service.get_effective_price(package_id, "yookassa")
+    
+    # Формируем текст с доступными способами оплаты
+    text = f"""
+💳 <b>{translate('payment.choose_method', default='Выберите способ оплаты')}</b>
+
+{package.emoji} <b>{package.name}</b>
+🎬 {package.credits} {translate('common.credits')}
+
+<b>{translate('payment.available_methods', default='Доступные способы:')}:</b>
+"""
+    
+    builder = InlineKeyboardBuilder()
+    
+    # Telegram Stars (всегда доступен)
+    if stars_price:
+        text += f"\n⭐ <b>Telegram Stars:</b> {stars_price} Stars"
+        builder.button(
+            text=f"⭐ {stars_price} Stars",
+            callback_data=f"pay_stars_{package_id}"
+        )
+    
+    # ЮКасса (если настроена и есть цена)
+    from services.yookassa_service import yookassa_service
+    if yookassa_service.is_available() and rub_price:
+        text += f"\n💳 <b>ЮКасса (банковская карта):</b> {rub_price:.2f} ₽"
+        builder.button(
+            text=f"💳 {rub_price:.2f} ₽",
+            callback_data=f"pay_yookassa_{package_id}"
+        )
+    
+    builder.button(text=f"◀️ {translate('common.back')}", callback_data="shop")
+    builder.adjust(1)
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("pay_stars_"))
+async def pay_with_stars(callback: CallbackQuery, bot: Bot):
+    """Оплата через Telegram Stars"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    # Находим пакет
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        return
+    
+    # Получаем актуальную цену в Stars
+    from services.price_service import price_service
+    stars_price = await price_service.get_effective_price(package_id, "telegram_stars")
+    
+    if not stars_price:
+        await callback.answer("❌ Цена в Stars не установлена", show_alert=True)
+        return
+    
+    await create_stars_invoice(callback, bot, package.credits, stars_price, package.name, package_id)
+
+@router.callback_query(F.data.startswith("pay_yookassa_"))
+async def pay_with_yookassa(callback: CallbackQuery, bot: Bot):
+    """Оплата через ЮКассу"""
+    package_id = callback.data.split("_", 2)[2]
+    
+    # Проверяем что ЮКасса настроена
+    from services.yookassa_service import yookassa_service
+    if not yookassa_service.is_available():
+        await callback.answer("❌ ЮКасса не настроена", show_alert=True)
+        return
+    
+    # Находим пакет
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        return
+    
+    # Получаем актуальную цену в рублях
+    from services.price_service import price_service
+    rub_price = await price_service.get_effective_price(package_id, "yookassa")
+    
+    if not rub_price:
+        await callback.answer("❌ Цена в рублях не установлена", show_alert=True)
+        return
+    
+    await create_yookassa_payment(callback, bot, package.credits, rub_price, package.name, package_id)
+
+async def create_stars_invoice(
     callback: CallbackQuery,
     bot: Bot,
     credits: int,
@@ -467,27 +587,6 @@ async def process_successful_payment(message: Message):
             f"transaction_id={transaction_id}"
         )
         
-        # Отправляем уведомление в админ-канал (если настроен)
-        if hasattr(settings, 'ADMIN_CHANNEL_ID') and settings.ADMIN_CHANNEL_ID:
-            admin_text = (
-                f"💰 <b>Новый платеж Telegram Stars</b>\n\n"
-                f"👤 <b>Пользователь:</b> {message.from_user.full_name} "
-                f"(@{message.from_user.username or 'no_username'})\n"
-                f"🆔 <b>ID:</b> {message.from_user.id}\n"
-                f"🎬 <b>Кредиты:</b> {transaction.amount}\n"
-                f"⭐ <b>Stars:</b> {payment.total_amount}\n"
-                f"🧾 <b>Транзакция:</b> #{transaction_id}\n"
-                f"📦 <b>Пакет:</b> {package_id or 'unknown'}"
-            )
-            try:
-                await message.bot.send_message(
-                    chat_id=settings.ADMIN_CHANNEL_ID,
-                    text=admin_text,
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Failed to send admin notification: {e}")
-        
     except (ValueError, IndexError) as e:
         logger.error(f"Error processing Stars payment: {e}, payload: {payload}")
         
@@ -523,6 +622,141 @@ async def process_successful_payment(message: Message):
                 text=f"🆘 {_('menu.support')}", callback_data="support"
             ).as_markup()
         )
+
+async def create_yookassa_payment(
+    callback: CallbackQuery,
+    bot: Bot,
+    credits: int,
+    rub_amount: float,
+    title: str,
+    package_id: str,
+    is_special: bool = False
+):
+    """Создать платеж в ЮКассе"""
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    
+    if not user:
+        await callback.answer(_('errors.user_not_found'), show_alert=True)
+        return
+    
+    # Функция перевода для языка пользователя
+    user_lang = user.language_code or 'ru'
+    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
+    
+    try:
+        from decimal import Decimal
+        from services.yookassa_service import yookassa_service
+        
+        # Создаем транзакцию в базе данных
+        transaction = await db.create_transaction(
+            user_id=user.id,
+            type='purchase',
+            amount=credits,
+            rub_paid=Decimal(str(rub_amount)),
+            package_id=package_id,
+            payment_method='yookassa'
+        )
+        
+        # Создаем платеж в ЮКассе
+        description = f"{title} - {credits} кредитов для {user.username or user.full_name}"
+        return_url = f"{settings.WEBHOOK_HOST}/payment/success" if settings.WEBHOOK_HOST else "https://t.me/seedance_bot"
+        
+        success, payment_data, error = await yookassa_service.create_payment(
+            amount=Decimal(str(rub_amount)),
+            description=description,
+            return_url=return_url,
+            user_id=user_id,
+            package_id=package_id,
+            transaction_id=transaction.id
+        )
+        
+        if success:
+            # Сохраняем ID платежа в транзакции
+            async with db.async_session() as session:
+                transaction_obj = await session.get(Transaction, transaction.id)
+                if transaction_obj:
+                    transaction_obj.yookassa_payment_id = payment_data["payment_id"]
+                    transaction_obj.yookassa_status = payment_data["status"]
+                    await session.commit()
+            
+            # Отправляем ссылку на оплату
+            confirmation_url = payment_data.get("confirmation_url")
+            if confirmation_url:
+                text = f"""
+💳 <b>{translate('payment.yookassa.created', default='Платеж создан')}</b>
+
+{title}
+🎬 {credits} {translate('common.credits')}
+💰 {rub_amount:.2f} ₽
+
+Нажмите на кнопку ниже для оплаты банковской картой:
+"""
+                
+                builder = InlineKeyboardBuilder()
+                builder.button(
+                    text=f"💳 {translate('payment.pay_now', default='Оплатить')} {rub_amount:.2f} ₽",
+                    url=confirmation_url
+                )
+                builder.button(
+                    text=f"◀️ {translate('common.back')}",
+                    callback_data="shop"
+                )
+                builder.adjust(1)
+                
+                await callback.message.edit_text(text, reply_markup=builder.as_markup())
+                await callback.answer(translate('payment.yookassa.redirect', default='Переходите к оплате'))
+                
+                # Логируем создание платежа
+                logger.info(
+                    f"YooKassa payment created: user={user_id}, credits={credits}, "
+                    f"rub={rub_amount}, payment_id={payment_data['payment_id']}, "
+                    f"transaction_id={transaction.id}"
+                )
+            else:
+                await callback.answer(
+                    translate('payment.yookassa.no_url', default='Ошибка получения ссылки на оплату'),
+                    show_alert=True
+                )
+        else:
+            await callback.answer(f"❌ {error}", show_alert=True)
+            
+            # Отмечаем транзакцию как неудачную
+            async with db.async_session() as session:
+                transaction_obj = await session.get(Transaction, transaction.id)
+                if transaction_obj:
+                    transaction_obj.status = 'failed'
+                    await session.commit()
+        
+    except Exception as e:
+        logger.error(f"Error creating YooKassa payment: {e}")
+        await callback.answer(
+            translate('payment.creation_error', default='Ошибка создания платежа'),
+            show_alert=True
+        )
+        
+        # Отправляем уведомление в админ-канал (если настроен)
+        if hasattr(settings, 'ADMIN_CHANNEL_ID') and settings.ADMIN_CHANNEL_ID:
+            admin_text = (
+                f"💰 <b>Новый платеж Telegram Stars</b>\n\n"
+                f"👤 <b>Пользователь:</b> {message.from_user.full_name} "
+                f"(@{message.from_user.username or 'no_username'})\n"
+                f"🆔 <b>ID:</b> {message.from_user.id}\n"
+                f"🎬 <b>Кредиты:</b> {transaction.amount}\n"
+                f"⭐ <b>Stars:</b> {payment.total_amount}\n"
+                f"🧾 <b>Транзакция:</b> #{transaction_id}\n"
+                f"📦 <b>Пакет:</b> {package_id or 'unknown'}"
+            )
+            try:
+                await message.bot.send_message(
+                    chat_id=settings.ADMIN_CHANNEL_ID,
+                    text=admin_text,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Failed to send admin notification: {e}")
+        
+
 
 @router.message(F.text == "/balance")
 @router.callback_query(F.data == "balance")
@@ -883,3 +1117,240 @@ async def show_all_transactions(message: Message):
     builder.adjust(2, 1)
     
     await message.answer(text, reply_markup=builder.as_markup())
+
+# ===============================
+# ОБРАБОТКА WEBHOOK ЮКАССЫ
+# ===============================
+
+async def process_yookassa_webhook(event_data: dict, bot):
+    """Обработать webhook от ЮКассы"""
+    try:
+        from services.yookassa_service import yookassa_service
+        from models.models import Transaction
+        
+        event_type = event_data.get("event_type")
+        payment_id = event_data.get("payment_id")
+        status = event_data.get("status")
+        metadata = event_data.get("metadata", {})
+        
+        if not payment_id:
+            logger.error("YooKassa webhook: payment_id not found")
+            return False
+        
+        # Находим транзакцию по payment_id
+        async with db.async_session() as session:
+            result = await session.execute(
+                select(Transaction).where(Transaction.yookassa_payment_id == payment_id)
+            )
+            transaction = result.scalar_one_or_none()
+            
+            if not transaction:
+                logger.error(f"YooKassa webhook: transaction not found for payment {payment_id}")
+                return False
+        
+        user_id = int(metadata.get("user_id", 0))
+        transaction_id = int(metadata.get("transaction_id", 0))
+        package_id = metadata.get("package_id")
+        
+        if transaction.id != transaction_id:
+            logger.error(f"YooKassa webhook: transaction ID mismatch")
+            return False
+        
+        # Обрабатываем разные типы событий
+        if event_type == "payment.succeeded" and status == "succeeded":
+            await process_successful_yookassa_payment(
+                transaction, event_data, bot
+            )
+        elif event_type == "payment.canceled" or status in ["canceled", "failed"]:
+            await process_failed_yookassa_payment(
+                transaction, event_data, bot
+            )
+        else:
+            # Обновляем статус транзакции
+            async with db.async_session() as session:
+                transaction_obj = await session.get(Transaction, transaction.id)
+                if transaction_obj:
+                    transaction_obj.yookassa_status = status
+                    await session.commit()
+            
+            logger.info(f"YooKassa webhook: status updated to {status} for payment {payment_id}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error processing YooKassa webhook: {e}")
+        return False
+
+async def process_successful_yookassa_payment(transaction, event_data: dict, bot):
+    """Обработать успешный платеж ЮКассы"""
+    try:
+        payment_id = event_data.get("payment_id")
+        amount = event_data.get("amount", 0)
+        
+        # Завершаем транзакцию
+        async with db.async_session() as session:
+            transaction_obj = await session.get(Transaction, transaction.id)
+            if not transaction_obj or transaction_obj.status == 'completed':
+                logger.warning(f"YooKassa: transaction {transaction.id} already completed or not found")
+                return
+            
+            # Обновляем транзакцию
+            transaction_obj.status = 'completed'
+            transaction_obj.yookassa_status = 'succeeded'
+            transaction_obj.completed_at = datetime.utcnow()
+            
+            # Начисляем кредиты пользователю
+            user = await session.get(User, transaction_obj.user_id)
+            if user:
+                old_balance = user.balance
+                user.balance += transaction_obj.amount
+                user.total_bought += transaction_obj.amount
+                transaction_obj.balance_before = old_balance
+                transaction_obj.balance_after = user.balance
+            
+            await session.commit()
+        
+        # Получаем обновленные данные
+        user = await db.get_user_by_id(transaction.user_id)
+        if not user:
+            logger.error(f"YooKassa: user not found for transaction {transaction.id}")
+            return
+        
+        # Функция перевода для языка пользователя
+        user_lang = user.language_code or 'ru'
+        translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
+        
+        # Отправляем уведомление пользователю
+        text = f"""
+✅ <b>{translate('payment.yookassa.success', default='Оплата ЮКассой успешна!')}</b>
+
+🎬 <b>{translate('payment.credits_received', default='Получено кредитов')}:</b> {transaction.amount}
+💳 <b>{translate('payment.paid', default='Оплачено')}:</b> {amount:.2f} ₽
+💰 <b>{translate('payment.your_balance', default='Ваш баланс')}:</b> {user.balance} {translate('common.credits')}
+
+🧾 <b>{translate('payment.transaction_id', default='ID транзакции')}:</b> #{transaction.id}
+📅 <b>{translate('payment.date', default='Дата')}:</b> {transaction.created_at.strftime('%d.%m.%Y %H:%M')}
+
+🚀 <b>{translate('payment.ready_to_create', default='Готовы создавать невероятные видео!')}</b>
+"""
+        
+        # Добавляем кнопки действий
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"🎬 {translate('menu.generate')}", callback_data="generate")
+        builder.button(text=f"💰 {translate('shop.buy_more', default='Купить еще')}", callback_data="shop")
+        builder.button(text=f"📊 {translate('menu.balance', balance='')}", callback_data="balance")
+        builder.button(text=f"◀️ {translate('menu.main_menu')}", callback_data="back_to_menu")
+        builder.adjust(2, 2)
+        
+        await bot.send_message(
+            chat_id=user.telegram_id,
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='HTML'
+        )
+        
+        # Отслеживаем событие покупки для UTM аналитики
+        try:
+            await utm_service.track_utm_event(
+                user_id=user.id,
+                event_type='purchase',
+                event_data={
+                    'transaction_id': transaction.id,
+                    'package_id': transaction.package_id,
+                    'yookassa_payment_id': payment_id
+                },
+                revenue=float(amount),  # В рублях
+                credits_purchased=transaction.amount
+            )
+        except Exception as e:
+            logger.error(f"Error tracking UTM purchase event: {e}")
+        
+        # Логируем успешный платеж
+        logger.info(
+            f"Successful YooKassa payment: user={user.telegram_id}, "
+            f"credits={transaction.amount}, rub={amount}, "
+            f"payment_id={payment_id}, transaction_id={transaction.id}"
+        )
+        
+        # Отправляем уведомление в админ-канал
+        if hasattr(settings, 'ADMIN_CHANNEL_ID') and settings.ADMIN_CHANNEL_ID:
+            admin_text = f"""
+💳 <b>Новый платеж ЮКасса</b>
+
+👤 <b>Пользователь:</b> {user.full_name} (@{user.username or 'no_username'})
+🆔 <b>ID:</b> {user.telegram_id}
+🎬 <b>Кредиты:</b> {transaction.amount}
+💳 <b>Рубли:</b> {amount:.2f} ₽
+🧾 <b>Транзакция:</b> #{transaction.id}
+📦 <b>Пакет:</b> {transaction.package_id or 'unknown'}
+💰 <b>Payment ID:</b> {payment_id}
+"""
+            try:
+                await bot.send_message(
+                    chat_id=settings.ADMIN_CHANNEL_ID,
+                    text=admin_text,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Failed to send admin notification: {e}")
+        
+    except Exception as e:
+        logger.error(f"Error processing successful YooKassa payment: {e}")
+
+async def process_failed_yookassa_payment(transaction, event_data: dict, bot):
+    """Обработать неудачный платеж ЮКассы"""
+    try:
+        payment_id = event_data.get("payment_id")
+        status = event_data.get("status")
+        
+        # Обновляем статус транзакции
+        async with db.async_session() as session:
+            transaction_obj = await session.get(Transaction, transaction.id)
+            if transaction_obj:
+                transaction_obj.status = 'failed' if status == 'failed' else 'cancelled'
+                transaction_obj.yookassa_status = status
+                await session.commit()
+        
+        # Получаем пользователя
+        user = await db.get_user_by_id(transaction.user_id)
+        if not user:
+            return
+        
+        # Функция перевода
+        user_lang = user.language_code or 'ru'
+        translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
+        
+        # Отправляем уведомление пользователю
+        if status == 'canceled':
+            text = f"""
+❌ <b>{translate('payment.yookassa.canceled', default='Платеж отменен')}</b>
+
+Оплата была отменена пользователем или истекло время ожидания.
+
+Попробуйте оформить заказ заново или обратитесь в поддержку.
+"""
+        else:
+            text = f"""
+❌ <b>{translate('payment.yookassa.failed', default='Ошибка оплаты')}</b>
+
+Произошла ошибка при обработке платежа.
+
+Попробуйте оформить заказ заново или обратитесь в поддержку.
+"""
+        
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"💰 {translate('shop.try_again', default='Попробовать снова')}", callback_data="shop")
+        builder.button(text=f"🆘 {translate('menu.support')}", callback_data="support")
+        builder.adjust(1)
+        
+        await bot.send_message(
+            chat_id=user.telegram_id,
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode='HTML'
+        )
+        
+        logger.info(f"YooKassa payment {status}: payment_id={payment_id}, transaction_id={transaction.id}")
+        
+    except Exception as e:
+        logger.error(f"Error processing failed YooKassa payment: {e}")

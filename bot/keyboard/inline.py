@@ -280,12 +280,13 @@ def get_admin_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     builder.button(text=f"🎁 {_('admin.credits.title')}", callback_data="admin_give_credits")
     builder.button(text=f"🚫 {_('admin.bans.title')}", callback_data="admin_bans")
     builder.button(text=f"💾 {_('admin.backup.title', default='Бэкапы БД')}", callback_data="admin_backup")
+    builder.button(text=f"💰 {_('admin.prices.title', default='Управление ценами')}", callback_data="admin_prices")
     builder.button(text=f"🧩 UTM Аналитика", callback_data="utm_analytics")
     builder.button(text=f"💰 {_('admin.api_balance')}", callback_data="admin_api_balance")
     builder.button(text=f"📋 {_('admin.logs.title')}", callback_data="admin_logs")
     builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     
-    builder.adjust(2, 2, 2, 2, 2)
+    builder.adjust(2, 2, 2, 2, 1)
     return builder.as_markup()
 
 def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
@@ -314,6 +315,58 @@ def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     )
     
     builder.adjust(1)
+    return builder.as_markup()
+
+def get_price_management_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура управления ценами"""
+    from bot.middlewares.i18n import i18n
+    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(text=f"📊 {_('admin.prices.view', default='Текущие цены')}", callback_data="price_view")
+    builder.button(text=f"✏️ {_('admin.prices.edit', default='Изменить цены')}", callback_data="price_edit")
+    builder.button(text=f"💳 {_('admin.prices.yookassa', default='Настройки ЮКассы')}", callback_data="price_yookassa")
+    builder.button(text=f"📈 {_('admin.prices.history', default='История цен')}", callback_data="price_history")
+    builder.button(text=f"🔄 {_('admin.prices.reset', default='Сбросить цены')}", callback_data="price_reset")
+    builder.button(text=f"◀️ {_('admin.back_to_admin')}", callback_data="admin")
+    
+    builder.adjust(2, 2, 1, 1)
+    return builder.as_markup()
+
+def get_package_edit_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура выбора пакета для редактирования"""
+    from bot.middlewares.i18n import i18n
+    from core.constants import CREDIT_PACKAGES
+    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    
+    builder = InlineKeyboardBuilder()
+    
+    for package in CREDIT_PACKAGES:
+        builder.button(
+            text=f"{package.emoji} {package.name}",
+            callback_data=f"price_edit_{package.id}"
+        )
+    
+    builder.button(text=f"◀️ {_('admin.back')}", callback_data="admin_prices")
+    
+    builder.adjust(2, 1)
+    return builder.as_markup()
+
+def get_price_edit_options_keyboard(package_id: str, language: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура опций редактирования цены"""
+    from bot.middlewares.i18n import i18n
+    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(text=f"⭐ {_('price.edit_stars', default='Цена в Stars')}", callback_data=f"price_stars_{package_id}")
+    builder.button(text=f"💳 {_('price.edit_rub', default='Цена в рублях')}", callback_data=f"price_rub_{package_id}")
+    builder.button(text=f"📝 {_('price.edit_note', default='Добавить заметку')}", callback_data=f"price_note_{package_id}")
+    builder.button(text=f"🗑 {_('price.delete', default='Удалить кастомную цену')}", callback_data=f"price_delete_{package_id}")
+    builder.button(text=f"◀️ {_('admin.back')}", callback_data="price_edit")
+    
+    builder.adjust(2, 1, 1, 1)
     return builder.as_markup()
 
 def get_backup_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
