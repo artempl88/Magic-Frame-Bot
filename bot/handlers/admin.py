@@ -42,6 +42,9 @@ router = Router(name="admin")
 # Декоратор для проверки админских прав
 def admin_only(func):
     """Декоратор для ограничения доступа только админам"""
+    from functools import wraps
+    
+    @wraps(func)
     async def wrapper(update: Union[Message, CallbackQuery], *args, **kwargs):
         if update.from_user.id not in settings.ADMIN_IDS:
             if isinstance(update, CallbackQuery):
@@ -67,7 +70,7 @@ async def admin_panel(message: Message, **kwargs):
 
 @router.callback_query(F.data == "admin_stats")
 @admin_only
-async def show_admin_stats(callback: CallbackQuery):
+async def show_admin_stats(callback: CallbackQuery, **kwargs):
     """Показать статистику бота"""
     try:
         stats = await db.get_bot_statistics()
@@ -88,7 +91,7 @@ async def show_admin_stats(callback: CallbackQuery):
         await callback.answer("❌ Ошибка загрузки статистики", show_alert=True)
 @router.callback_query(F.data == "admin_detailed_stats")
 @admin_only
-async def show_detailed_admin_stats(callback: CallbackQuery):
+async def show_detailed_admin_stats(callback: CallbackQuery, **kwargs):
     """Показать детальную статистику бота"""
     try:
         # Получаем расширенную статистику
@@ -120,7 +123,7 @@ async def show_detailed_admin_stats(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_export_stats")
 @admin_only
-async def export_admin_stats(callback: CallbackQuery):
+async def export_admin_stats(callback: CallbackQuery, **kwargs):
     """Экспорт статистики в файл"""
     try:
         await callback.answer("📊 Подготавливаю экспорт...")
@@ -172,7 +175,7 @@ async def export_admin_stats(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_menu")
 @admin_only
-async def show_admin_menu(callback: CallbackQuery):
+async def show_admin_menu(callback: CallbackQuery, **kwargs):
     """Показать админ меню"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -336,7 +339,7 @@ async def handle_give_credits_amount(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin_api_balance")
 @admin_only
-async def check_api_balance(callback: CallbackQuery):
+async def check_api_balance(callback: CallbackQuery, **kwargs):
     """Проверить баланс API"""
     try:
         await callback.answer("Проверяю баланс API...")
@@ -556,7 +559,7 @@ def format_api_balance_message(balance_check: dict) -> str:
 
 @router.callback_query(F.data == "admin_backup")
 @admin_only
-async def backup_menu(callback: CallbackQuery):
+async def backup_menu(callback: CallbackQuery, **kwargs):
     """Меню управления бэкапами"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -584,7 +587,7 @@ async def backup_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data == "backup_create")
 @admin_only
-async def backup_create(callback: CallbackQuery, state: FSMContext):
+async def backup_create(callback: CallbackQuery, state: FSMContext, **kwargs):
     """Создать бэкап"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -623,7 +626,7 @@ async def backup_create_with_description(message: Message, state: FSMContext):
             
             # Логируем создание бэкапа
             await BaseHandler.log_admin_action(
-                user.user_id,
+                user.id,
                 "backup_create",
                 {"description": description, "file_path": file_path}
             )
@@ -642,7 +645,7 @@ async def backup_create_with_description(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "backup_list")
 @admin_only
-async def backup_list(callback: CallbackQuery):
+async def backup_list(callback: CallbackQuery, **kwargs):
     """Список бэкапов"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -685,7 +688,7 @@ async def backup_list(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("backup_info_"))
 @admin_only
-async def backup_info(callback: CallbackQuery):
+async def backup_info(callback: CallbackQuery, **kwargs):
     """Информация о конкретном бэкапе"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -723,7 +726,7 @@ async def backup_info(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("backup_delete_"))
 @admin_only
-async def backup_delete(callback: CallbackQuery):
+async def backup_delete(callback: CallbackQuery, **kwargs):
     """Удалить бэкап"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -739,7 +742,7 @@ async def backup_delete(callback: CallbackQuery):
             
             # Логируем удаление
             await BaseHandler.log_admin_action(
-                user.user_id,
+                user.id,
                 "backup_delete", 
                 {"filename": filename}
             )
@@ -882,11 +885,11 @@ async def backup_restore_confirm(message: Message, state: FSMContext):
         if success:
             # Логируем критическую операцию
             await BaseHandler.log_admin_action(
-                user.user_id,
+                user.id,
                 "backup_restore",
                 {
                     "filename": filename,
-                    "admin_id": user.user_id,
+                    "admin_id": user.id,
                     "admin_username": message.from_user.username,
                     "timestamp": datetime.now().isoformat()
                 }
@@ -924,7 +927,7 @@ async def backup_restore_confirm(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "backup_stats")
 @admin_only
-async def backup_stats(callback: CallbackQuery):
+async def backup_stats(callback: CallbackQuery, **kwargs):
     """Статистика бэкапов"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -974,7 +977,7 @@ async def backup_stats(callback: CallbackQuery):
 
 @router.callback_query(F.data == "backup_cleanup")
 @admin_only
-async def backup_cleanup(callback: CallbackQuery):
+async def backup_cleanup(callback: CallbackQuery, **kwargs):
     """Очистка старых бэкапов"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:
@@ -992,7 +995,7 @@ async def backup_cleanup(callback: CallbackQuery):
         
         # Логируем очистку
         await BaseHandler.log_admin_action(
-            user.user_id,
+            user.id,
             "backup_cleanup",
             {"deleted_count": deleted_count}
         )
@@ -1022,7 +1025,7 @@ async def cancel_backup_restore(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin_prices")
 @admin_only
-async def show_price_management(callback: CallbackQuery):
+async def show_price_management(callback: CallbackQuery, **kwargs):
     """Показать меню управления ценами"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     
@@ -1048,7 +1051,7 @@ async def show_price_management(callback: CallbackQuery):
 
 @router.callback_query(F.data == "price_view")
 @admin_only
-async def show_current_prices(callback: CallbackQuery):
+async def show_current_prices(callback: CallbackQuery, **kwargs):
     """Показать текущие цены"""
     try:
         from services.price_service import price_service
@@ -1095,7 +1098,7 @@ async def show_current_prices(callback: CallbackQuery):
 
 @router.callback_query(F.data == "price_edit")
 @admin_only
-async def show_package_selection(callback: CallbackQuery):
+async def show_package_selection(callback: CallbackQuery, **kwargs):
     """Показать выбор пакета для редактирования"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     
@@ -1115,7 +1118,7 @@ async def show_package_selection(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("price_edit_"))
 @admin_only
-async def show_package_edit_options(callback: CallbackQuery):
+async def show_package_edit_options(callback: CallbackQuery, **kwargs):
     """Показать опции редактирования пакета"""
     package_id = callback.data.split("_", 2)[2]
     
@@ -1332,7 +1335,7 @@ async def process_rub_price_edit(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("price_delete_"))
 @admin_only
-async def delete_custom_price(callback: CallbackQuery):
+async def delete_custom_price(callback: CallbackQuery, **kwargs):
     """Удалить кастомную цену пакета"""
     package_id = callback.data.split("_", 2)[2]
     
@@ -1382,7 +1385,7 @@ async def delete_custom_price(callback: CallbackQuery):
 
 @router.callback_query(F.data == "price_yookassa")
 @admin_only
-async def show_yookassa_settings(callback: CallbackQuery):
+async def show_yookassa_settings(callback: CallbackQuery, **kwargs):
     """Показать настройки ЮКассы"""
     try:
         from services.yookassa_service import yookassa_service
@@ -1433,7 +1436,7 @@ ENABLE_YOOKASSA=true</code>
 
 @router.callback_query(F.data == "price_history")
 @admin_only
-async def show_price_history(callback: CallbackQuery):
+async def show_price_history(callback: CallbackQuery, **kwargs):
     """Показать историю изменения цен"""
     try:
         from services.price_service import price_service
@@ -1473,7 +1476,7 @@ async def show_price_history(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_panel")
 @admin_only  
-async def back_to_admin_panel(callback: CallbackQuery):
+async def back_to_admin_panel(callback: CallbackQuery, **kwargs):
     """Возврат в админ панель"""
     user, _ = await BaseHandler.get_user_and_translator(callback)
     if not user:

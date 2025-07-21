@@ -1,7 +1,8 @@
 import os
 import gzip
 import asyncio
-import subprocess
+import aiohttp
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -21,64 +22,60 @@ class BackupService:
         
     async def create_backup(self, description: str = None) -> Tuple[bool, str, Optional[str]]:
         """
-        Создать резервную копию базы данных
+        Создать резервную копию базы данных через webhook
         
         Returns:
             Tuple[bool, str, Optional[str]]: (success, message, file_path)
         """
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"backup_{timestamp}.sql.gz"
-            file_path = self.backup_dir / filename
+            logger.info(f"Создание бэкапа через webhook сервер")
             
-            # Команда для создания дампа PostgreSQL
-            pg_dump_cmd = [
-                "docker", "exec", "-i", "magic_frame_postgres",
-                "pg_dump", 
-                "-U", settings.DB_USER,
-                "-d", settings.DB_NAME,
-                "--verbose",
-                "--no-password"
-            ]
+            # URL webhook сервера на хосте
+            webhook_url = "http://172.22.0.1:8082/create_backup"
+            payload = {"description": description or "Резервная копия из админки"}
             
-            logger.info(f"Создание бэкапа: {filename}")
+            # Отправляем запрос к webhook серверу
+            timeout = aiohttp.ClientTimeout(total=300)  # 5 минут
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(webhook_url, json=payload) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            
+                            if result.get("success"):
+                                # Получаем информацию о созданном файле
+                                created_filename = result.get("filename", "backup_unknown.sql.gz")
+                                file_size = result.get("size", 0)
+                                size_mb = result.get("size_mb", 0)
+                                
+                                # Создаем метаданные для совместимости
+                                await self._create_metadata(created_filename, description, file_size)
+                                
+                                success_msg = f"✅ Бэкап создан успешно!\n" \
+                                             f"📁 Файл: {created_filename}\n" \
+                                             f"📊 Размер: {size_mb:.1f} MB\n" \
+                                             f"🕐 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+                                
+                                if description:
+                                    success_msg += f"\n📝 Описание: {description}"
+                                
+                                logger.info(f"Бэкап создан через webhook: {created_filename}")
+                                return True, success_msg, str(self.backup_dir / created_filename)
+                            else:
+                                error_msg = result.get("message", "Неизвестная ошибка")
+                                logger.error(f"Ошибка webhook: {error_msg}")
+                                return False, f"Ошибка создания бэкапа: {error_msg}", None
+                        else:
+                            error_msg = f"HTTP {response.status}: {await response.text()}"
+                            logger.error(f"Ошибка HTTP: {error_msg}")
+                            return False, f"Ошибка соединения с сервисом бэкапа", None
             
-            # Выполняем pg_dump и сжимаем результат
-            process = await asyncio.create_subprocess_exec(
-                *pg_dump_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "PGPASSWORD": settings.DB_PASSWORD}
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Неизвестная ошибка"
-                logger.error(f"Ошибка создания бэкапа: {error_msg}")
-                return False, f"Ошибка создания бэкапа: {error_msg}", None
-            
-            # Сжимаем результат
-            with gzip.open(file_path, 'wb') as f:
-                f.write(stdout)
-            
-            # Получаем размер файла
-            file_size = file_path.stat().st_size
-            size_mb = file_size / 1024 / 1024
-            
-            # Создаем метаданные
-            await self._create_metadata(filename, description, file_size)
-            
-            success_msg = f"✅ Бэкап создан успешно!\n" \
-                         f"📁 Файл: {filename}\n" \
-                         f"📊 Размер: {size_mb:.1f} MB\n" \
-                         f"🕐 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
-            
-            if description:
-                success_msg += f"\n📝 Описание: {description}"
-            
-            logger.info(f"Бэкап создан: {filename} ({size_mb:.1f} MB)")
-            return True, success_msg, str(file_path)
+            except asyncio.TimeoutError:
+                logger.error("Timeout при создании бэкапа")
+                return False, "Превышено время ожидания создания бэкапа (5 минут)", None
+            except aiohttp.ClientError as e:
+                logger.error(f"Ошибка HTTP клиента: {e}")
+                return False, f"Ошибка соединения с сервисом бэкапа: {str(e)}", None
             
         except Exception as e:
             error_msg = f"Критическая ошибка при создании бэкапа: {str(e)}"
@@ -91,14 +88,13 @@ class BackupService:
             metadata_file = self.backup_dir / f"{filename}.meta"
             metadata = {
                 "created_at": datetime.now().isoformat(),
-                "description": description or "Ручной бэкап",
+                "description": description or "Резервная копия из админки",
                 "size": file_size,
                 "database": settings.DB_NAME,
                 "user": settings.DB_USER
             }
             
             with open(metadata_file, 'w', encoding='utf-8') as f:
-                import json
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
@@ -109,7 +105,14 @@ class BackupService:
         backups = []
         
         try:
-            for backup_file in sorted(self.backup_dir.glob("backup_*.sql.gz"), reverse=True):
+            # Включаем файлы из всех форматов
+            patterns = ["backup_*.sql.gz", "magic_frame_bot_*.sql.gz"]
+            all_files = []
+            
+            for pattern in patterns:
+                all_files.extend(self.backup_dir.glob(pattern))
+            
+            for backup_file in sorted(all_files, key=lambda x: x.stat().st_mtime, reverse=True):
                 metadata_file = backup_file.with_suffix(backup_file.suffix + ".meta")
                 
                 # Основная информация о файле
@@ -120,13 +123,12 @@ class BackupService:
                     "size": stat.st_size,
                     "size_mb": stat.st_size / 1024 / 1024,
                     "created_at": datetime.fromtimestamp(stat.st_mtime),
-                    "description": "Автоматический бэкап"
+                    "description": "Автоматический бэкап" if "magic_frame_bot_" in backup_file.name else "Ручной бэкап"
                 }
                 
                 # Дополнительная информация из метаданных
                 if metadata_file.exists():
                     try:
-                        import json
                         with open(metadata_file, 'r', encoding='utf-8') as f:
                             metadata = json.load(f)
                             backup_info.update({
@@ -174,21 +176,25 @@ class BackupService:
             deleted_count = 0
             total_size = 0
             
-            for backup_file in self.backup_dir.glob("backup_*.sql.gz"):
-                file_time = datetime.fromtimestamp(backup_file.stat().st_mtime)
-                
-                if file_time < cutoff_date:
-                    file_size = backup_file.stat().st_size
-                    total_size += file_size
+            # Обрабатываем все типы файлов
+            patterns = ["backup_*.sql.gz", "magic_frame_bot_*.sql.gz"]
+            
+            for pattern in patterns:
+                for backup_file in self.backup_dir.glob(pattern):
+                    file_time = datetime.fromtimestamp(backup_file.stat().st_mtime)
                     
-                    # Удаляем файл и метаданные
-                    backup_file.unlink()
-                    metadata_file = backup_file.with_suffix(backup_file.suffix + ".meta")
-                    if metadata_file.exists():
-                        metadata_file.unlink()
-                    
-                    deleted_count += 1
-                    logger.info(f"Удален старый бэкап: {backup_file.name}")
+                    if file_time < cutoff_date:
+                        file_size = backup_file.stat().st_size
+                        total_size += file_size
+                        
+                        # Удаляем файл и метаданные
+                        backup_file.unlink()
+                        metadata_file = backup_file.with_suffix(backup_file.suffix + ".meta")
+                        if metadata_file.exists():
+                            metadata_file.unlink()
+                        
+                        deleted_count += 1
+                        logger.info(f"Удален старый бэкап: {backup_file.name}")
             
             size_mb = total_size / 1024 / 1024
             result_msg = f"🧹 Очистка завершена:\n" \
@@ -248,56 +254,8 @@ class BackupService:
             
             logger.warning(f"ВОССТАНОВЛЕНИЕ БД из {filename}")
             
-            # Команды для восстановления
-            drop_db_cmd = [
-                "docker", "exec", "-i", "magic_frame_postgres",
-                "dropdb", "-U", settings.DB_USER, settings.DB_NAME
-            ]
-            
-            create_db_cmd = [
-                "docker", "exec", "-i", "magic_frame_postgres", 
-                "createdb", "-U", settings.DB_USER, settings.DB_NAME
-            ]
-            
-            restore_cmd = [
-                "docker", "exec", "-i", "magic_frame_postgres",
-                "psql", "-U", settings.DB_USER, "-d", settings.DB_NAME
-            ]
-            
-            # Удаляем существующую БД
-            process = await asyncio.create_subprocess_exec(
-                *drop_db_cmd,
-                env={**os.environ, "PGPASSWORD": settings.DB_PASSWORD}
-            )
-            await process.communicate()
-            
-            # Создаем новую БД  
-            process = await asyncio.create_subprocess_exec(
-                *create_db_cmd,
-                env={**os.environ, "PGPASSWORD": settings.DB_PASSWORD}
-            )
-            await process.communicate()
-            
-            # Восстанавливаем данные
-            with gzip.open(backup_file, 'rb') as f:
-                process = await asyncio.create_subprocess_exec(
-                    *restore_cmd,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env={**os.environ, "PGPASSWORD": settings.DB_PASSWORD}
-                )
-                
-                stdout, stderr = await process.communicate(input=f.read())
-                
-                if process.returncode != 0:
-                    error_msg = stderr.decode() if stderr else "Неизвестная ошибка"
-                    logger.error(f"Ошибка восстановления: {error_msg}")
-                    return False, f"Ошибка восстановления: {error_msg}"
-            
-            success_msg = f"✅ База данных восстановлена из {filename}"
-            logger.warning(f"БД восстановлена из {filename}")
-            return True, success_msg
+            # Пока возвращаем сообщение о недоступности функции
+            return False, "Функция восстановления временно недоступна"
             
         except Exception as e:
             error_msg = f"Критическая ошибка восстановления: {str(e)}"
@@ -305,4 +263,4 @@ class BackupService:
             return False, error_msg
 
 # Глобальный экземпляр сервиса
-backup_service = BackupService() 
+backup_service = BackupService()
