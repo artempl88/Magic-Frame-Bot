@@ -272,7 +272,7 @@ class UTMAnalyticsService:
                 select(
                     func.count(UTMClick.id).label('total_clicks'),
                     func.count(func.distinct(UTMClick.telegram_id)).label('unique_users'),
-                    func.sum(func.cast(UTMClick.is_first_visit, func.INTEGER)).label('first_visits')
+                    func.count(UTMClick.id).filter(UTMClick.is_first_visit == True).label('first_visits')
                 ).where(and_(*click_filters))
             )
             click_stats = clicks_result.first()
@@ -495,6 +495,49 @@ class UTMAnalyticsService:
                 })
             
             return analytics
+
+
+    async def delete_utm_campaign(self, campaign_id: int, admin_id: int) -> bool:
+        """Удаляет UTM кампанию и все связанные данные"""
+        
+        async with db.async_session() as session:
+            # Проверяем существование кампании
+            result = await session.execute(
+                select(UTMCampaign).where(UTMCampaign.id == campaign_id)
+            )
+            campaign = result.scalar()
+            
+            if not campaign:
+                return False
+            
+            try:
+                # Удаляем связанные события
+                await session.execute(
+                    text("DELETE FROM utm_events WHERE campaign_id = :campaign_id"),
+                    {"campaign_id": campaign_id}
+                )
+                
+                # Удаляем связанные клики
+                await session.execute(
+                    text("DELETE FROM utm_clicks WHERE campaign_id = :campaign_id"),
+                    {"campaign_id": campaign_id}
+                )
+                
+                # Удаляем саму кампанию
+                await session.execute(
+                    text("DELETE FROM utm_campaigns WHERE id = :campaign_id"),
+                    {"campaign_id": campaign_id}
+                )
+                
+                await session.commit()
+                
+                logger.info(f"Admin {admin_id} deleted UTM campaign {campaign_id} ({campaign.name})")
+                return True
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error deleting UTM campaign {campaign_id}: {e}")
+                return False
 
 # Глобальный экземпляр сервиса
 utm_service = UTMAnalyticsService() 
