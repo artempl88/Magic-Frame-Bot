@@ -12,7 +12,6 @@ from models.models import (
     SupportTicket, Statistics, AdminLog, UserAction,
     GenerationStatusEnum, TransactionTypeEnum, TransactionStatusEnum
 )
-from core.constants import TransactionType
 
 logger = logging.getLogger(__name__)
 
@@ -57,38 +56,42 @@ class DatabaseService:
         async with self.async_session() as session:
             return await session.get(User, user_id)
     
-    async def get_user_by_internal_id(self, user_id: int) -> Optional[User]:
-        """Получить пользователя по внутреннему ID (алиас для совместимости)"""
-        return await self.get_user_by_id(user_id)
+    async def get_user_by_username(self, username: str) -> Optional[User]:
+        """Получить пользователя по username"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(User).where(User.username == username)
+            )
+            return result.scalar_one_or_none()
     
     async def create_user(
         self,
-        user_id: int,  # telegram_id
+        telegram_id: int,
         username: Optional[str] = None,
         first_name: Optional[str] = None,
         last_name: Optional[str] = None,
         language_code: Optional[str] = None,
-        referrer_id: Optional[int] = None
+        referrer_telegram_id: Optional[int] = None
     ) -> User:
         """Создать нового пользователя"""
         async with self.async_session() as session:
             # Проверяем, существует ли уже пользователь
             existing = await session.execute(
-                select(User).where(User.telegram_id == user_id)
+                select(User).where(User.telegram_id == telegram_id)
             )
             if existing.scalar_one_or_none():
-                raise ValueError(f"User with telegram_id {user_id} already exists")
+                raise ValueError(f"User with telegram_id {telegram_id} already exists")
             
             # Ищем реферера по telegram_id
             referrer = None
-            if referrer_id:
+            if referrer_telegram_id:
                 referrer_result = await session.execute(
-                    select(User).where(User.telegram_id == referrer_id)
+                    select(User).where(User.telegram_id == referrer_telegram_id)
                 )
                 referrer = referrer_result.scalar_one_or_none()
             
             user = User(
-                telegram_id=user_id,
+                telegram_id=telegram_id,
                 username=username,
                 first_name=first_name,
                 last_name=last_name,
@@ -131,34 +134,48 @@ class DatabaseService:
         )
         session.add(ref_transaction)
     
-    async def update_user_balance(self, user_id: int, amount: int) -> bool:
+    async def update_user_balance(self, user_id: int, amount: int, description: Optional[str] = None) -> bool:
         """Обновить баланс пользователя (по внутреннему ID)"""
+        # Валидация amount
+        if abs(amount) > 1_000_000:
+            logger.error(f"Attempt to update balance with too large amount: {amount}")
+            return False
+            
         async with self.async_session() as session:
             user = await session.get(User, user_id)
-            if user:
-                old_balance = user.balance
-                user.balance += amount
+            if not user:
+                return False
                 
-                if amount > 0:
-                    user.total_bought += amount
-                else:
-                    user.total_spent += abs(amount)
+            old_balance = user.balance
+            new_balance = user.balance + amount
+            
+            # Проверка на отрицательный баланс
+            if new_balance < 0:
+                logger.warning(f"Attempt to set negative balance for user {user_id}: {new_balance}")
+                return False
                 
-                # Создаем транзакцию для отслеживания
-                transaction = Transaction(
-                    user_id=user_id,
-                    type=TransactionTypeEnum.GENERATION if amount < 0 else TransactionTypeEnum.BONUS,
-                    amount=amount,
-                    balance_before=old_balance,
-                    balance_after=user.balance,
-                    status=TransactionStatusEnum.COMPLETED,
-                    completed_at=datetime.utcnow()
-                )
-                session.add(transaction)
-                
-                await session.commit()
-                return True
-            return False
+            user.balance = new_balance
+            
+            if amount > 0:
+                user.total_bought += amount
+            else:
+                user.total_spent += abs(amount)
+            
+            # Создаем транзакцию для отслеживания
+            transaction = Transaction(
+                user_id=user_id,
+                type=TransactionTypeEnum.GENERATION if amount < 0 else TransactionTypeEnum.BONUS,
+                amount=amount,
+                balance_before=old_balance,
+                balance_after=new_balance,
+                status=TransactionStatusEnum.COMPLETED,
+                description=description,
+                completed_at=datetime.utcnow()
+            )
+            session.add(transaction)
+            
+            await session.commit()
+            return True
     
     async def get_user_balance(self, telegram_id: int) -> int:
         """Получить баланс пользователя"""
@@ -197,12 +214,6 @@ class DatabaseService:
                 )
                 await session.commit()
     
-    async def update_user_object(self, user: User):
-        """Обновить объект пользователя"""
-        async with self.async_session() as session:
-            await session.merge(user)
-            await session.commit()
-    
     async def update_user_settings(self, user_id: int, settings: Dict[str, Any]) -> bool:
         """Обновить настройки пользователя"""
         async with self.async_session() as session:
@@ -214,9 +225,14 @@ class DatabaseService:
             await session.commit()
             return True
     
-    async def get_user_total_generations(self, user_id: int) -> int:
-        """Получить общее количество генераций пользователя (алиас для get_user_generations_count)"""
-        return await self.get_user_generations_count(user_id)
+    async def get_user_generations_count(self, user_id: int) -> int:
+        """Получить количество генераций пользователя"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(func.count(Generation.id))
+                .where(Generation.user_id == user_id)
+            )
+            return result.scalar() or 0
     
     async def get_user_total_spent(self, user_id: int) -> int:
         """Получить общую сумму потраченных кредитов пользователя"""
@@ -387,6 +403,10 @@ class DatabaseService:
         **kwargs
     ) -> Generation:
         """Создать новую генерацию"""
+        # Валидация cost
+        if cost < 0 or cost > 10000:
+            raise ValueError(f"Invalid generation cost: {cost}")
+            
         async with self.async_session() as session:
             # Определяем, используются ли бонусные кредиты
             used_bonus_credits = await self._is_using_bonus_credits(session, user_id, cost)
@@ -395,13 +415,13 @@ class DatabaseService:
                 user_id=user_id,
                 mode=mode,
                 model=model,
-                prompt=prompt,
+                prompt=prompt[:2000],  # Ограничиваем длину промпта
                 cost=cost,
                 used_bonus_credits=used_bonus_credits,
                 resolution=kwargs.get('resolution', '720p'),
                 duration=kwargs.get('duration', 5),
                 aspect_ratio=kwargs.get('aspect_ratio', '16:9'),
-                negative_prompt=kwargs.get('negative_prompt'),
+                negative_prompt=kwargs.get('negative_prompt', '')[:500],  # Ограничиваем длину
                 image_url=kwargs.get('image_url'),
                 video_url=None,
                 video_file_id=None,
@@ -498,9 +518,9 @@ class DatabaseService:
                     values['video_file_id'] = kwargs['video_file_id']
             elif status == GenerationStatusEnum.FAILED:
                 if 'error_message' in kwargs:
-                    values['error_message'] = kwargs['error_message']
+                    values['error_message'] = kwargs['error_message'][:500]  # Ограничиваем длину
                 if 'error_code' in kwargs:
-                    values['error_code'] = kwargs['error_code']
+                    values['error_code'] = kwargs['error_code'][:50]  # Ограничиваем длину
             
             if 'task_id' in kwargs:
                 values['task_id'] = kwargs['task_id']
@@ -521,6 +541,9 @@ class DatabaseService:
         status: Optional[str] = None
     ):
         """Обновить прогресс генерации"""
+        # Валидация progress
+        progress = max(0, min(100, progress))
+        
         async with self.async_session() as session:
             values = {'progress': progress}
             if status:
@@ -539,7 +562,7 @@ class DatabaseService:
             await session.execute(
                 update(Generation)
                 .where(Generation.id == generation_id)
-                .values(video_file_id=file_id)
+                .values(video_file_id=file_id[:200])  # Ограничиваем длину
             )
             await session.commit()
     
@@ -570,15 +593,6 @@ class DatabaseService:
             )
             return result.scalars().all()
     
-    async def get_user_generations_count(self, user_id: int) -> int:
-        """Получить количество генераций пользователя"""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(func.count(Generation.id))
-                .where(Generation.user_id == user_id)
-            )
-            return result.scalar() or 0
-    
     async def rate_generation(
         self,
         generation_id: int,
@@ -586,11 +600,15 @@ class DatabaseService:
         feedback: Optional[str] = None
     ):
         """Оценить генерацию"""
+        # Валидация rating
+        if rating < 1 or rating > 5:
+            raise ValueError(f"Invalid rating: {rating}")
+            
         async with self.async_session() as session:
             await session.execute(
                 update(Generation)
                 .where(Generation.id == generation_id)
-                .values(rating=rating, feedback=feedback)
+                .values(rating=rating, feedback=feedback[:500] if feedback else None)
             )
             await session.commit()
     
@@ -622,9 +640,11 @@ class DatabaseService:
                 balance_before=user.balance,
                 balance_after=balance_after,
                 stars_paid=kwargs.get('stars_paid'),
+                rub_paid=kwargs.get('rub_paid'),
                 package_id=kwargs.get('package_id'),
+                payment_method=kwargs.get('payment_method', 'telegram_stars'),
                 payment_id=kwargs.get('payment_id'),
-                description=kwargs.get('description'),
+                description=kwargs.get('description', '')[:500],  # Ограничиваем длину
                 meta_data=kwargs.get('metadata'),
                 status=TransactionStatusEnum.PENDING
             )
@@ -716,12 +736,6 @@ class DatabaseService:
         """Получить транзакцию по ID"""
         async with self.async_session() as session:
             return await session.get(Transaction, transaction_id)
-    
-    async def update_transaction(self, transaction: Transaction):
-        """Обновить объект транзакции"""
-        async with self.async_session() as session:
-            await session.merge(transaction)
-            await session.commit()
     
     async def get_user_transactions(
         self,
@@ -840,6 +854,10 @@ class DatabaseService:
         limit: int = 10
     ) -> List[User]:
         """Поиск пользователей"""
+        # Валидация query
+        if not query or len(query) > 100:
+            return []
+            
         async with self.async_session() as session:
             # Защита от SQL injection - используем параметризованные запросы
             search_pattern = f"%{query}%"
@@ -854,7 +872,7 @@ class DatabaseService:
                         cast(User.telegram_id, String).like(search_pattern)
                     )
                 )
-                .limit(limit)
+                .limit(min(limit, 100))  # Ограничиваем максимальный limit
             )
             return result.scalars().all()
     
@@ -869,11 +887,14 @@ class DatabaseService:
         only_premium: bool = False
     ) -> List[User]:
         """Получить всех пользователей (для админов)"""
+        # Валидация параметров
+        limit = min(limit, 1000)  # Максимум 1000 пользователей за раз
+        
         async with self.async_session() as session:
             query = select(User)
             
             if search:
-                search_pattern = f"%{search}%"
+                search_pattern = f"%{search[:100]}%"  # Ограничиваем длину search
                 query = query.where(
                     or_(
                         User.username.ilike(search_pattern),
@@ -906,7 +927,7 @@ class DatabaseService:
                 .where(User.telegram_id == telegram_id)
                 .values(
                     is_banned=banned,
-                    ban_reason=reason if banned else None,
+                    ban_reason=reason[:500] if reason and banned else None,
                     banned_at=datetime.utcnow() if banned else None
                 )
             )
@@ -927,14 +948,6 @@ class DatabaseService:
             )
             await session.commit()
             return result.rowcount > 0
-
-    async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
-        """Получить пользователя по telegram ID"""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(User).where(User.telegram_id == telegram_id)
-            )
-            return result.scalars().first()
     
     async def ban_user_by_id(self, user_id: int, reason: Optional[str] = None) -> bool:
         """Забанить пользователя по внутреннему ID"""
@@ -944,7 +957,7 @@ class DatabaseService:
                 .where(User.id == user_id)
                 .values(
                     is_banned=True,
-                    ban_reason=reason,
+                    ban_reason=reason[:500] if reason else None,
                     banned_at=datetime.utcnow()
                 )
             )
@@ -959,6 +972,11 @@ class DatabaseService:
         reason: Optional[str] = None
     ) -> bool:
         """Добавить кредиты пользователю (админская функция)"""
+        # Валидация amount
+        if abs(amount) > 1_000_000:
+            logger.error(f"Attempt to add too many credits: {amount}")
+            return False
+            
         user = await self.get_user(telegram_id)
         if not user:
             return False
@@ -985,7 +1003,7 @@ class DatabaseService:
                 balance_before=new_balance - amount,
                 balance_after=new_balance,
                 status=TransactionStatusEnum.COMPLETED,
-                description=reason or f"Начислено администратором {admin_id}",
+                description=(reason or f"Начислено администратором {admin_id}")[:500],
                 completed_at=datetime.utcnow(),
                 meta_data={"admin_id": admin_id}
             )
@@ -1001,6 +1019,11 @@ class DatabaseService:
         reason: Optional[str] = None
     ) -> bool:
         """Добавить кредиты пользователю"""
+        # Валидация amount
+        if abs(amount) > 1_000_000:
+            logger.error(f"Attempt to add too many credits: {amount}")
+            return False
+            
         async with self.async_session() as session:
             user = await session.get(User, user_id)
             if not user:
@@ -1021,7 +1044,7 @@ class DatabaseService:
                 balance_before=old_balance,
                 balance_after=user.balance,
                 status=TransactionStatusEnum.COMPLETED,
-                description=reason or f"{'Начисление' if amount > 0 else 'Списание'} {abs(amount)} кредитов",
+                description=(reason or f"{'Начисление' if amount > 0 else 'Списание'} {abs(amount)} кредитов")[:500],
                 completed_at=datetime.utcnow()
             )
             session.add(transaction)
@@ -1119,8 +1142,8 @@ class DatabaseService:
         async with self.async_session() as session:
             action_log = UserAction(
                 user_id=user_id,
-                action=action,
-                category=category,
+                action=action[:100],  # Ограничиваем длину
+                category=category[:50] if category else None,
                 details=details
             )
             session.add(action_log)
@@ -1137,7 +1160,7 @@ class DatabaseService:
         async with self.async_session() as session:
             log = AdminLog(
                 admin_id=admin_id,
-                action=action,
+                action=action[:100],  # Ограничиваем длину
                 target_user_id=target_user_id,
                 details=details
             )
@@ -1179,6 +1202,9 @@ class DatabaseService:
         Returns:
             Список генераций
         """
+        if not task_ids:
+            return []
+            
         async with self.async_session() as session:
             result = await session.execute(
                 select(Generation)

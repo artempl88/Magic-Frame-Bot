@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from aiogram import Router, F, Bot
 from aiogram.types import (
     Message, CallbackQuery, LabeledPrice,
@@ -15,41 +15,51 @@ from bot.keyboard.inline import (
 from bot.utils.messages import MessageTemplates
 from services.database import db
 from services.utm_analytics import utm_service
-from core.constants import CREDIT_PACKAGES, SPECIAL_OFFERS, TransactionType
+from core.constants import CREDIT_PACKAGES, SPECIAL_OFFERS
 from core.config import settings
 from bot.middlewares.i18n import I18n
+from models.models import TransactionTypeEnum, TransactionStatusEnum, Transaction, User
 
 logger = logging.getLogger(__name__)
 
 # Глобальная функция локализации
 i18n = I18n()
-_ = lambda key, **kwargs: i18n.get(key, lang='ru', **kwargs)
 
 router = Router(name="payment")
 
+# Добавляем декоратор для проверки пользователя
+def ensure_user(func):
+    """Декоратор для проверки существования пользователя"""
+    from functools import wraps
+    
+    @wraps(func)
+    async def wrapper(update: Union[Message, CallbackQuery], *args, **kwargs):
+        user_id = update.from_user.id
+        user = await db.get_user(user_id)
+        
+        if not user:
+            text = i18n.get('errors.use_start', 'ru')
+            if isinstance(update, CallbackQuery):
+                await update.answer(text, show_alert=True)
+            else:
+                await update.answer(text)
+            return
+        
+        kwargs['user'] = user
+        kwargs['_'] = lambda key, **kw: i18n.get(key, user.language_code or 'ru', **kw)
+        return await func(update, *args, **kwargs)
+    return wrapper
+
 @router.message(F.text == "/buy")
 @router.callback_query(F.data == "shop")
-async def show_shop(update: Message | CallbackQuery):
+@ensure_user
+async def show_shop(update: Message | CallbackQuery, user: User, _, **kwargs):
     """Показать магазин кредитов"""
-    user_id = update.from_user.id
-    user = await db.get_user(user_id)
-    
-    if not user:
-        if isinstance(update, CallbackQuery):
-            await update.answer(_('errors.use_start'), show_alert=True)
-        else:
-            await update.answer(_('errors.please_use_start'))
-        return
-    
-    # Функция перевода для языка пользователя
-    user_lang = user.language_code or 'ru'
-    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
-    
     # Проверяем специальные предложения
     has_new_user_offer = False
     if user.total_bought == 0:
         # Проверяем, использовал ли уже новичковое предложение
-        transactions = await db.get_user_transactions(user_id, limit=100)
+        transactions = await db.get_user_transactions(user.telegram_id, limit=100)
         new_user_used = any(
             t.meta_data and t.meta_data.get('offer_id') == 'new_user'
             for t in transactions if t.meta_data
@@ -60,40 +70,31 @@ async def show_shop(update: Message | CallbackQuery):
     text = MessageTemplates.SHOP_MENU.format(balance=user.balance)
     
     if has_new_user_offer:
-        text += f"\n\n🎁 <b>{translate('shop.special_offer_available', default='Специальное предложение для новых пользователей доступно!')}</b>"
+        text += f"\n\n🎁 <b>{_('shop.special_offer_available', default='Специальное предложение для новых пользователей доступно!')}</b>"
     
     # Показываем магазин
     if isinstance(update, CallbackQuery):
-        await update.message.edit_text(text, reply_markup=get_shop_keyboard(user_lang))
+        await update.message.edit_text(text, reply_markup=get_shop_keyboard(user.language_code))
         await update.answer()
     else:
-        await update.answer(text, reply_markup=get_shop_keyboard(user_lang))
+        await update.answer(text, reply_markup=get_shop_keyboard(user.language_code))
 
 @router.callback_query(F.data.startswith("buy_"))
-async def show_package_details(callback: CallbackQuery):
+@ensure_user
+async def show_package_details(callback: CallbackQuery, user: User, _, **kwargs):
     """Показать детали пакета"""
     package_id = callback.data.split("_", 1)[1]
-    
-    # Получаем пользователя
-    user = await db.get_user(callback.from_user.id)
-    if not user:
-        await callback.answer(_('errors.use_start'), show_alert=True)
-        return
-    
-    # Функция перевода для языка пользователя
-    user_lang = user.language_code or 'ru'
-    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
     
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        await callback.answer(translate("shop.package_not_found"), show_alert=True)
+        await callback.answer(_("shop.package_not_found"), show_alert=True)
         return
     
     # Форматируем текст
     discount_text = ""
     if package.discount > 0:
-        discount_text = f"\n🎯 <b>{translate('shop.discount', default='Скидка')}:</b> {package.discount}%"
+        discount_text = f"\n🎯 <b>{_('shop.discount', default='Скидка')}:</b> {package.discount}%"
     
     text = MessageTemplates.PACKAGE_DETAILS.format(
         emoji=package.emoji,
@@ -107,25 +108,15 @@ async def show_package_details(callback: CallbackQuery):
     
     await callback.message.edit_text(text)
     await callback.message.edit_reply_markup(
-        reply_markup=get_package_details_keyboard(package_id, user_lang)
+        reply_markup=get_package_details_keyboard(package_id, user.language_code)
     )
     await callback.answer()
 
 @router.callback_query(F.data == "special_offers")
-async def show_special_offers(callback: CallbackQuery):
+@ensure_user
+async def show_special_offers(callback: CallbackQuery, user: User, _, **kwargs):
     """Показать специальные предложения"""
-    user_id = callback.from_user.id
-    user = await db.get_user(user_id)
-    
-    if not user:
-        await callback.answer(_('errors.use_start'), show_alert=True)
-        return
-    
-    # Функция перевода для языка пользователя
-    user_lang = user.language_code or 'ru'
-    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
-    
-    text = f"🎁 <b>{translate('shop.special_offers')}</b>\n\n"
+    text = f"🎁 <b>{_('shop.special_offers')}</b>\n\n"
     
     builder = InlineKeyboardBuilder()
     available_offers = []
@@ -134,7 +125,7 @@ async def show_special_offers(callback: CallbackQuery):
     for offer in SPECIAL_OFFERS:
         if offer['condition'] == 'one_time' and user.total_bought == 0:
             # Проверяем, не использовал ли уже
-            transactions = await db.get_user_transactions(user_id, limit=100)
+            transactions = await db.get_user_transactions(user.telegram_id, limit=100)
             used = any(
                 t.meta_data and t.meta_data.get('offer_id') == offer['id']
                 for t in transactions if t.meta_data
@@ -142,11 +133,11 @@ async def show_special_offers(callback: CallbackQuery):
             
             if not used:
                 available_offers.append(offer)
-                offer_name = translate(f"offers.{offer['id']}.name", default=offer['name'])
-                offer_desc = translate(f"offers.{offer['id']}.description", default=offer['description'])
+                offer_name = _(f"offers.{offer['id']}.name", default=offer['name'])
+                offer_desc = _(f"offers.{offer['id']}.description", default=offer['description'])
                 
                 text += f"{offer_name}\n"
-                text += f"💰 {offer['credits']} {translate('common.credits')} {translate('shop.for', default='за')} {offer['stars']} Stars\n"
+                text += f"💰 {offer['credits']} {_('common.credits')} {_('shop.for', default='за')} {offer['stars']} Stars\n"
                 text += f"📝 {offer_desc}\n\n"
                 
                 builder.button(
@@ -155,10 +146,10 @@ async def show_special_offers(callback: CallbackQuery):
                 )
     
     if not available_offers:
-        text += f"😔 <i>{translate('shop.no_offers', default='Сейчас нет доступных специальных предложений')}</i>\n\n"
-        text += translate('shop.check_later', default='Следите за обновлениями!')
+        text += f"😔 <i>{_('shop.no_offers', default='Сейчас нет доступных специальных предложений')}</i>\n\n"
+        text += _('shop.check_later', default='Следите за обновлениями!')
     
-    builder.button(text=translate("common.back"), callback_data="shop")
+    builder.button(text=_("common.back"), callback_data="shop")
     builder.adjust(1)
     
     await callback.message.edit_text(text)
@@ -199,7 +190,7 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot):
     # Находим предложение
     offer = next((o for o in SPECIAL_OFFERS if o['id'] == offer_id), None)
     if not offer:
-        await callback.answer(_('shop.offer_not_found'), show_alert=True)
+        await callback.answer(i18n.get('shop.offer_not_found', 'ru'), show_alert=True)
         return
     
     # Проверяем доступность
@@ -230,12 +221,12 @@ async def choose_payment_method(callback: CallbackQuery):
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        await callback.answer(i18n.get('shop.package_not_found', 'ru'), show_alert=True)
         return
     
     user = await db.get_user(callback.from_user.id)
     if not user:
-        await callback.answer(_('errors.user_not_found'), show_alert=True)
+        await callback.answer(i18n.get('errors.user_not_found', 'ru'), show_alert=True)
         return
     
     user_lang = user.language_code or 'ru'
@@ -289,7 +280,7 @@ async def pay_with_stars(callback: CallbackQuery, bot: Bot):
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        await callback.answer(i18n.get('shop.package_not_found', 'ru'), show_alert=True)
         return
     
     # Получаем актуальную цену в Stars
@@ -316,7 +307,7 @@ async def pay_with_yookassa(callback: CallbackQuery, bot: Bot):
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        await callback.answer(i18n.get('shop.package_not_found', 'ru'), show_alert=True)
         return
     
     # Получаем актуальную цену в рублях
@@ -339,11 +330,20 @@ async def create_stars_invoice(
     is_special: bool = False
 ):
     """Создать инвойс для оплаты Telegram Stars"""
+    # Валидация параметров
+    if credits <= 0 or credits > 100000:
+        await callback.answer("❌ Некорректное количество кредитов", show_alert=True)
+        return
+        
+    if stars <= 0 or stars > 10000:
+        await callback.answer("❌ Некорректная цена", show_alert=True)
+        return
+    
     user_id = callback.from_user.id
     user = await db.get_user(user_id)
     
     if not user:
-        await callback.answer(_('errors.user_not_found'), show_alert=True)
+        await callback.answer(i18n.get('errors.user_not_found', 'ru'), show_alert=True)
         return
     
     # Функция перевода для языка пользователя
@@ -369,12 +369,12 @@ async def create_stars_invoice(
         # Отправляем инвойс с правильным payload
         await bot.send_invoice(
             chat_id=callback.from_user.id,
-            title=title,
-            description=description,
+            title=title[:32],  # Telegram ограничение на длину
+            description=description[:255],  # Telegram ограничение на длину
             provider_token="",  # Telegram Stars не требует токен
             currency="XTR",  # Telegram Stars
             prices=prices,
-            payload=f"stars_transaction_{transaction.id}_{package_id}",
+            payload=f"stars_transaction_{transaction.id}_{package_id}"[:64],  # Ограничение 64 байта
             start_parameter=f"pay_{package_id}",
             need_name=False,
             need_phone_number=False,
@@ -637,7 +637,7 @@ async def create_yookassa_payment(
     user = await db.get_user(user_id)
     
     if not user:
-        await callback.answer(_('errors.user_not_found'), show_alert=True)
+        await callback.answer(i18n.get('errors.user_not_found', 'ru'), show_alert=True)
         return
     
     # Функция перевода для языка пользователя
@@ -757,27 +757,13 @@ async def create_yookassa_payment(
                 logger.error(f"Failed to send admin notification: {e}")
         
 
-
 @router.message(F.text == "/balance")
 @router.callback_query(F.data == "balance")
-async def show_balance(update: Message | CallbackQuery):
+@ensure_user
+async def show_balance(update: Message | CallbackQuery, user: User, _, **kwargs):
     """Показать баланс пользователя"""
-    user_id = update.from_user.id
-    user = await db.get_user(user_id)
-    
-    if not user:
-        if isinstance(update, CallbackQuery):
-            await update.answer(_('errors.use_start'), show_alert=True)
-        else:
-            await update.answer(_('errors.use_start'))
-        return
-    
-    # Функция перевода для языка пользователя
-    user_lang = user.language_code or 'ru'
-    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
-    
     # Получаем статистику
-    stats = await db.get_user_statistics(user_id)
+    stats = await db.get_user_statistics(user.telegram_id)
     
     # Считаем бонусы
     bonuses = settings.WELCOME_BONUS_CREDITS  # Бонус новичка
@@ -790,32 +776,32 @@ async def show_balance(update: Message | CallbackQuery):
     )
     
     # Добавляем последние транзакции
-    transactions = await db.get_user_transactions(user_id, limit=5)
+    transactions = await db.get_user_transactions(user.telegram_id, limit=5)
     if transactions:
-        text += f"\n\n📋 <b>{translate('balance.recent_transactions', default='Последние операции')}:</b>\n"
+        text += f"\n\n📋 <b>{_('balance.recent_transactions', default='Последние операции')}:</b>\n"
         for t in transactions:
             emoji = "📥" if t.amount > 0 else "📤"
             date = MessageTemplates.format_date(t.created_at)
             
             # Описание транзакции
-            if t.type == TransactionType.PURCHASE:
-                desc = translate('transaction.purchase', default='Покупка')
-            elif t.type == TransactionType.GENERATION:
-                desc = translate('transaction.generation', default='Генерация')
-            elif t.type == TransactionType.REFUND:
-                desc = translate('transaction.refund', default='Возврат')
-            elif t.type == TransactionType.BONUS:
-                desc = translate('transaction.bonus', default='Бонус')
+            if t.type == TransactionTypeEnum.PURCHASE:
+                desc = _('transaction.purchase', default='Покупка')
+            elif t.type == TransactionTypeEnum.GENERATION:
+                desc = _('transaction.generation', default='Генерация')
+            elif t.type == TransactionTypeEnum.REFUND:
+                desc = _('transaction.refund', default='Возврат')
+            elif t.type == TransactionTypeEnum.BONUS:
+                desc = _('transaction.bonus', default='Бонус')
             else:
-                desc = t.description or translate('transaction.other', default='Другое')
+                desc = t.description or _('transaction.other', default='Другое')
             
             text += f"{emoji} {t.amount:+d} - {desc} - {date}\n"
     
     # Кнопки
     builder = InlineKeyboardBuilder()
-    builder.button(text=translate("menu.buy_credits"), callback_data="shop")
-    builder.button(text=translate("menu.history"), callback_data="history")
-    builder.button(text=f"◀️ {translate('menu.main_menu')}", callback_data="back_to_menu")
+    builder.button(text=_("menu.buy_credits"), callback_data="shop")
+    builder.button(text=_("menu.history"), callback_data="history")
+    builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     builder.adjust(2, 1)
     
     if isinstance(update, CallbackQuery):
@@ -959,49 +945,41 @@ async def handle_refund_request(callback: CallbackQuery, bot: Bot):
         await callback.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
 
 @router.message(F.text == "/transactions")
-async def show_transactions(message: Message):
+@ensure_user
+async def show_transactions(message: Message, user: User, _, **kwargs):
     """Показать историю транзакций (расширенная)"""
-    user = await db.get_user(message.from_user.id)
-    if not user:
-        await message.answer(_('errors.use_start'))
-        return
-    
-    # Функция перевода для языка пользователя
-    user_lang = user.language_code or 'ru'
-    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
-    
     # Получаем транзакции (только завершенные и возвращенные)
     transactions = await db.get_user_transactions(user.telegram_id, limit=20)
     
     if not transactions:
         await message.answer(
-            f"{translate('transactions.empty', default='У вас пока нет транзакций')}\n\n"
-            f"{translate('transactions.buy_credits_hint', default='Купите кредиты, чтобы начать создавать видео!')}",
+            f"{_('transactions.empty', default='У вас пока нет транзакций')}\n\n"
+            f"{_('transactions.buy_credits_hint', default='Купите кредиты, чтобы начать создавать видео!')}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=translate("menu.buy_credits"), callback_data="shop")
+                InlineKeyboardButton(text=_("menu.buy_credits"), callback_data="shop")
             ]])
         )
         return
     
-    text = f"📋 <b>{translate('transactions.history', default='История транзакций')}</b>\n\n"
+    text = f"📋 <b>{_('transactions.history', default='История транзакций')}</b>\n\n"
     
     for t in transactions:
         # Эмодзи по типу
-        if t.type == TransactionType.PURCHASE:
+        if t.type == TransactionTypeEnum.PURCHASE:
             emoji = "💳"
-            type_text = translate('transaction.purchase', default='Покупка')
-        elif t.type == TransactionType.GENERATION:
+            type_text = _('transaction.purchase', default='Покупка')
+        elif t.type == TransactionTypeEnum.GENERATION:
             emoji = "🎬"
-            type_text = translate('transaction.generation', default='Генерация')
-        elif t.type == TransactionType.REFUND:
+            type_text = _('transaction.generation', default='Генерация')
+        elif t.type == TransactionTypeEnum.REFUND:
             emoji = "💸"
-            type_text = translate('transaction.refund', default='Возврат')
-        elif t.type == TransactionType.BONUS:
+            type_text = _('transaction.refund', default='Возврат')
+        elif t.type == TransactionTypeEnum.BONUS:
             emoji = "🎁"
-            type_text = translate('transaction.bonus', default='Бонус')
+            type_text = _('transaction.bonus', default='Бонус')
         else:
             emoji = "💰"
-            type_text = translate('transaction.other', default='Другое')
+            type_text = _('transaction.other', default='Другое')
         
         # Форматируем сумму
         amount_str = f"{t.amount:+d}" if t.amount != 0 else "0"
@@ -1012,18 +990,18 @@ async def show_transactions(message: Message):
         # Статус транзакции
         status_suffix = ""
         if t.status == 'refunded':
-            status_suffix = f" | ❌ {translate('transaction.refunded', default='Возвращено')}"
+            status_suffix = f" | ❌ {_('transaction.refunded', default='Возвращено')}"
         elif t.status == 'failed':
-            status_suffix = f" | ❌ {translate('transaction.failed', default='Неудачно')}"
+            status_suffix = f" | ❌ {_('transaction.failed', default='Неудачно')}"
         elif t.status == 'cancelled':
-            status_suffix = f" | ❌ {translate('transaction.cancelled', default='Отменено')}"
+            status_suffix = f" | ❌ {_('transaction.cancelled', default='Отменено')}"
         elif t.status == 'pending':
-            status_suffix = f" | ⏳ {translate('transaction.pending', default='Ожидание')}"
+            status_suffix = f" | ⏳ {_('transaction.pending', default='Ожидание')}"
         elif t.status == 'completed':
-            status_suffix = f" | ✅ {translate('transaction.completed', default='Завершено')}"
+            status_suffix = f" | ✅ {_('transaction.completed', default='Завершено')}"
         
         text += f"{emoji} <b>#{t.id}</b> | {date}\n"
-        text += f"   {type_text} | {amount_str} {translate('common.credits')}{status_suffix}\n"
+        text += f"   {type_text} | {amount_str} {_('common.credits')}{status_suffix}\n"
         
         if t.description:
             text += f"   📝 {t.description}\n"
@@ -1032,54 +1010,43 @@ async def show_transactions(message: Message):
     
     # Кнопки
     builder = InlineKeyboardBuilder()
-    builder.button(text=f"📊 {translate('menu.balance', balance='')}", callback_data="balance")
-    builder.button(text=f"💰 {translate('menu.buy_credits')}", callback_data="shop")
-    builder.button(text=f"◀️ {translate('menu.main_menu')}", callback_data="back_to_menu")
+    builder.button(text=f"📊 {_('menu.balance', balance='')}", callback_data="balance")
+    builder.button(text=f"💰 {_('menu.buy_credits')}", callback_data="shop")
+    builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     builder.adjust(2, 1)
     
     await message.answer(text, reply_markup=builder.as_markup())
 
 @router.message(F.text == "/all_transactions")
-async def show_all_transactions(message: Message):
+@ensure_user
+async def show_all_transactions(message: Message, user: User, _, **kwargs):
     """Показать ВСЕ транзакции включая отмененные (для админов)"""
-    user_id = message.from_user.id
-    
-    # Проверяем, есть ли пользователь в БД
-    user = await db.get_user(user_id)
-    if not user:
-        await message.answer(_('errors.please_use_start'))
-        return
-    
-    # Функция перевода для языка пользователя
-    user_lang = user.language_code or 'ru'
-    translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
-    
     # Получаем все транзакции (включая отмененные)
-    transactions = await db.get_user_transactions(user_id, limit=50, include_all_statuses=True)
+    transactions = await db.get_user_transactions(user.telegram_id, limit=50, include_all_statuses=True)
     
     if not transactions:
-        await message.answer(translate('transactions.empty'))
+        await message.answer(_('transactions.empty'))
         return
     
-    text = f"📋 <b>{translate('transactions.all_history', default='Полная история транзакций')}</b>\n\n"
+    text = f"📋 <b>{_('transactions.all_history', default='Полная история транзакций')}</b>\n\n"
     
     for t in transactions:
         # Эмодзи по типу
-        if t.type == TransactionType.PURCHASE:
+        if t.type == TransactionTypeEnum.PURCHASE:
             emoji = "💳"
-            type_text = translate('balance.purchase')
-        elif t.type == TransactionType.GENERATION:
+            type_text = _('balance.purchase')
+        elif t.type == TransactionTypeEnum.GENERATION:
             emoji = "🎬"
-            type_text = translate('balance.generation')
-        elif t.type == TransactionType.REFUND:
+            type_text = _('balance.generation')
+        elif t.type == TransactionTypeEnum.REFUND:
             emoji = "💸"
-            type_text = translate('balance.refund')
-        elif t.type == TransactionType.BONUS:
+            type_text = _('balance.refund')
+        elif t.type == TransactionTypeEnum.BONUS:
             emoji = "🎁"
-            type_text = translate('balance.bonus')
+            type_text = _('balance.bonus')
         else:
             emoji = "💰"
-            type_text = translate('balance.other')
+            type_text = _('balance.other')
         
         # Форматируем сумму
         amount_str = f"{t.amount:+d}"
@@ -1090,18 +1057,18 @@ async def show_all_transactions(message: Message):
         # Статус
         status_emoji = ""
         if t.status == 'refunded':
-            status_emoji = translate('balance.status.refunded')
+            status_emoji = _('balance.status.refunded')
         elif t.status == 'failed':
-            status_emoji = translate('balance.status.failed')
+            status_emoji = _('balance.status.failed')
         elif t.status == 'cancelled':
-            status_emoji = translate('balance.status.cancelled')
+            status_emoji = _('balance.status.cancelled')
         elif t.status == 'pending':
-            status_emoji = translate('balance.status.pending')
+            status_emoji = _('balance.status.pending')
         elif t.status == 'completed':
-            status_emoji = translate('balance.status.completed')
+            status_emoji = _('balance.status.completed')
         
         text += f"{emoji} <b>#{t.id}</b> | {date}\n"
-        text += f"   {type_text} | {amount_str} {translate('common.credits')}{status_emoji}\n"
+        text += f"   {type_text} | {amount_str} {_('common.credits')}{status_emoji}\n"
         
         if t.description:
             desc = t.description if len(t.description) <= 50 else f"{t.description[:50]}..."
@@ -1111,9 +1078,9 @@ async def show_all_transactions(message: Message):
     
     # Кнопки
     builder = InlineKeyboardBuilder()
-    builder.button(text=f"📊 {translate('menu.balance', balance='')}", callback_data="balance")
-    builder.button(text=f"💰 {translate('menu.buy_credits')}", callback_data="shop")
-    builder.button(text=f"◀️ {translate('menu.main_menu')}", callback_data="back_to_menu")
+    builder.button(text=f"📊 {_('menu.balance', balance='')}", callback_data="balance")
+    builder.button(text=f"💰 {_('menu.buy_credits')}", callback_data="shop")
+    builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     builder.adjust(2, 1)
     
     await message.answer(text, reply_markup=builder.as_markup())

@@ -648,7 +648,7 @@ async def export_campaign_data(callback: CallbackQuery):
         
         # Определяем поля для детального экспорта
         fieldnames = [
-            'f"Кампания_{campaign_id}"', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
+            f'Кампания_{campaign_id}', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
             'click_id', 'clicked_at', 'click_date', 'click_hour', 'click_day_of_week',
             'telegram_id', 'username', 'first_name', 'last_name', 'language_code',
             'is_first_visit', 'is_registered_user', 'is_premium', 'user_credits_balance',
@@ -669,7 +669,7 @@ async def export_campaign_data(callback: CallbackQuery):
         file = BufferedInputFile(csv_content, filename=filename)
         
         # Получаем название кампании из данных
-        campaign_name = data[0]['f"Кампания_{campaign_id}"'] if data else f"Campaign {campaign_id}"
+        campaign_name = data[0][f'Кампания_{campaign_id}'] if data else f"Campaign {campaign_id}"
         total_clicks = len(set(row['click_id'] for row in data))
         total_events = len([row for row in data if row['event_type']])
         total_revenue = sum(float(row['revenue']) for row in data)
@@ -678,7 +678,7 @@ async def export_campaign_data(callback: CallbackQuery):
             file,
             caption=f"""📊 <b>Детальные данные UTM кампании</b>
 
-📋 <b>Кампания:</b> {f"Кампания_{campaign_id}"}
+📋 <b>Кампания:</b> {campaign_name}
 📅 <b>Период:</b> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
 📝 <b>Записей в файле:</b> {len(data)}
 👥 <b>Уникальных кликов:</b> {total_clicks}
@@ -835,26 +835,26 @@ async def show_detailed_analytics(callback: CallbackQuery):
                 date_obj = datetime.fromisoformat(day_data['date'])
                 date_str = date_obj.strftime('%d.%m')
                 weekday = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][date_obj.weekday()]
-                text += f"• {date_str} ({weekday}): {day_data['clicks']} кликов, {day_data['unique_users']} польз.\\n"
+                text += f"• {date_str} ({weekday}): {day_data['clicks']} кликов, {day_data['unique_users']} польз.\n"
         else:
-            text += "📊 Нет данных за последние дни\\n"
+            text += "📊 Нет данных за последние дни\n"
         
-        text += f"\\n🕐 <b>Пиковые часы активности:</b>\\n"
+        text += f"\n🕐 <b>Пиковые часы активности:</b>\n"
         if timeline['top_hours']:
             for i, hour_data in enumerate(timeline['top_hours'], 1):
-                text += f"{i}. {hour_data['hour']} - {hour_data['clicks']} кликов\\n"
+                text += f"{i}. {hour_data['hour']} - {hour_data['clicks']} кликов\n"
         else:
-            text += "📊 Нет данных о часах активности\\n"
+            text += "📊 Нет данных о часах активности\n"
         
         # Детализация по событиям
-        text += f"\\n⏱️ <b>Время до конверсии:</b>\\n"
+        text += f"\n⏱️ <b>Время до конверсии:</b>\n"
         for event_type, event_data in events.items():
             if event_data.get('avg_time_to_convert_minutes', 0) > 0:
                 event_name = {'registration': 'Регистрация', 'purchase': 'Покупка', 'generation': 'Генерация'}.get(event_type, event_type)
-                text += f"• {event_name}:\\n"
-                text += f"  - Среднее: {event_data['avg_time_to_convert_minutes']:.1f} мин\\n"
-                text += f"  - Минимум: {event_data['min_time_to_convert_seconds']//60:.0f} мин\\n"
-                text += f"  - Максимум: {event_data['max_time_to_convert_seconds']//60:.0f} мин\\n"
+                text += f"• {event_name}:\n"
+                text += f"  - Среднее: {event_data['avg_time_to_convert_minutes']:.1f} мин\n"
+                text += f"  - Минимум: {event_data['min_time_to_convert_seconds']//60:.0f} мин\n"
+                text += f"  - Максимум: {event_data['max_time_to_convert_seconds']//60:.0f} мин\n"
         
         builder = InlineKeyboardBuilder()
         builder.button(text="📊 Основная аналитика", callback_data=f"utm_view_campaign_{campaign_id}")
@@ -892,7 +892,7 @@ async def export_campaign_summary(callback: CallbackQuery):
         
         # Определяем поля для сводки
         fieldnames = [
-            'f"Кампания_{campaign_id}"', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
+            f'Кампания_{campaign_id}', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
             'total_clicks', 'unique_users', 'first_visits', 'registered_users_clicks', 'new_users_clicks',
             'registrations', 'purchases', 'generations', 'total_revenue',
             'revenue_per_click', 'revenue_per_user',
@@ -914,7 +914,7 @@ async def export_campaign_summary(callback: CallbackQuery):
             file,
             caption=f"""📊 <b>Сводка по UTM кампании</b>
 
-📋 <b>Кампания:</b> {data[0]['f"Кампания_{campaign_id}"']}
+📋 <b>Кампания:</b> {data[0][f'Кампания_{campaign_id}']}
 📅 <b>Период:</b> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
 📈 <b>Кликов:</b> {data[0]['total_clicks']}
 👥 <b>Уникальных:</b> {data[0]['unique_users']}
@@ -958,21 +958,21 @@ async def show_credit_details(callback: CallbackQuery):
         
         # Топ покупаемые пакеты
         if credit_analytics['purchase_packages']:
-            text += "🏆 <b>Популярные пакеты кредитов:</b>\\n"
+            text += "🏆 <b>Популярные пакеты кредитов:</b>\n"
             for i, package in enumerate(credit_analytics['purchase_packages'][:5], 1):
                 package_name = package['package_id'] or f"{package['amount']} кредитов"
-                text += f"{i}. <b>{package_name}</b>\\n"
+                text += f"{i}. <b>{package_name}</b>\n"
                 text += f"   📦 {package['transaction_count']} покупок"
                 text += f" • {package['total_credits']} кредитов"
                 if package['total_stars_paid'] > 0:
                     text += f" • ⭐{package['total_stars_paid']}"
                 if package['total_rub_paid'] > 0:
                     text += f" • {package['total_rub_paid']:.2f}₽"
-                text += "\\n\\n"
+                text += "\n\n"
         
         # Бонусные кредиты по промо-кодам
         if credit_analytics['bonus_events']:
-            text += "🎁 <b>Бонусные кредиты:</b>\\n"
+            text += "🎁 <b>Бонусные кредиты:</b>\n"
             for bonus in credit_analytics['bonus_events']:
                 promo_data = bonus.get('event_data', {})
                 if isinstance(promo_data, str):
@@ -983,13 +983,13 @@ async def show_credit_details(callback: CallbackQuery):
                         promo_data = {}
                 
                 promo_code = promo_data.get('promo_code', 'Неизвестен')
-                text += f"• <code>{promo_code}</code>: {bonus['usage_count']}x по {bonus['credits_amount']} кредитов\\n"
+                text += f"• <code>{promo_code}</code>: {bonus['usage_count']}x по {bonus['credits_amount']} кредитов\n"
         
         # Паттерны трат
         if credit_analytics['spending_patterns']:
-            text += "\\n💸 <b>Паттерны трат:</b>\\n"
+            text += "\n💸 <b>Паттерны трат:</b>\n"
             for pattern in credit_analytics['spending_patterns'][:3]:
-                text += f"• {abs(pattern['amount'])} кредитов: {pattern['transaction_count']} транзакций\\n"
+                text += f"• {abs(pattern['amount'])} кредитов: {pattern['transaction_count']} транзакций\n"
         
         builder = InlineKeyboardBuilder()
         builder.button(text="📥 Экспорт кредитов", callback_data=f"utm_export_{campaign_id}")
@@ -1003,4 +1003,3 @@ async def show_credit_details(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error showing credit details for campaign {campaign_id}: {e}")
         await callback.answer("❌ Ошибка при загрузке аналитики кредитов", show_alert=True)
-
