@@ -251,6 +251,7 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot):
     )
 
 @router.callback_query(F.data.startswith("pay_stars_"))
+@ensure_user
 async def pay_with_stars(callback: CallbackQuery, bot: Bot):
     """Оплата через Telegram Stars"""
     package_id = callback.data.split("_", 2)[2]
@@ -272,6 +273,7 @@ async def pay_with_stars(callback: CallbackQuery, bot: Bot):
     await create_stars_invoice(callback, bot, package.credits, stars_price, package.name, package_id)
 
 @router.callback_query(F.data.startswith("pay_yookassa_"))
+@ensure_user
 async def pay_with_yookassa(callback: CallbackQuery, bot: Bot):
     """Оплата через ЮКассу"""
     package_id = callback.data.split("_", 2)[2]
