@@ -19,7 +19,7 @@ class UTMAnalyticsService:
     """Сервис для работы с UTM-аналитикой"""
     
     def __init__(self):
-        self.base_bot_url = "https://t.me/magic_frame_bot"  # URL бота
+        self.base_bot_url = "https://t.me/MagicFrameBot"  # URL бота
     
     def generate_short_code(self, length: int = 8) -> str:
         """Генерирует короткий код для UTM ссылки"""

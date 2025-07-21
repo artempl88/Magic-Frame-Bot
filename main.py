@@ -119,6 +119,7 @@ async def on_startup(bot: Bot):
         logger.error(f"Error during startup: {e}")
         raise
 
+
 async def on_shutdown(bot: Bot):
     """Действия при остановке бота"""
     try:

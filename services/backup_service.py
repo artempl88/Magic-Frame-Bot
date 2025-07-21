@@ -16,7 +16,7 @@ class BackupService:
     """Сервис для управления бэкапами базы данных"""
     
     def __init__(self):
-        self.backup_dir = Path("./backups")
+        self.backup_dir = Path("/app/backups")
         self.backup_dir.mkdir(exist_ok=True)
         
     async def create_backup(self, description: str = None) -> Tuple[bool, str, Optional[str]]:
@@ -33,7 +33,7 @@ class BackupService:
             
             # Команда для создания дампа PostgreSQL
             pg_dump_cmd = [
-                "docker", "exec", "-i", "client_postgres",
+                "docker", "exec", "-i", "magic_frame_postgres",
                 "pg_dump", 
                 "-U", settings.DB_USER,
                 "-d", settings.DB_NAME,
@@ -250,17 +250,17 @@ class BackupService:
             
             # Команды для восстановления
             drop_db_cmd = [
-                "docker", "exec", "-i", "client_postgres",
+                "docker", "exec", "-i", "magic_frame_postgres",
                 "dropdb", "-U", settings.DB_USER, settings.DB_NAME
             ]
             
             create_db_cmd = [
-                "docker", "exec", "-i", "client_postgres", 
+                "docker", "exec", "-i", "magic_frame_postgres", 
                 "createdb", "-U", settings.DB_USER, settings.DB_NAME
             ]
             
             restore_cmd = [
-                "docker", "exec", "-i", "client_postgres",
+                "docker", "exec", "-i", "magic_frame_postgres",
                 "psql", "-U", settings.DB_USER, "-d", settings.DB_NAME
             ]
             

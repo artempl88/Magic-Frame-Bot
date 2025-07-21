@@ -44,8 +44,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --chown=botuser:botuser . .
 
 # Create necessary directories
-RUN mkdir -p logs static/images static/videos temp_files locales celerybeat && \
-    chown -R botuser:botuser logs static temp_files locales celerybeat
+RUN mkdir -p logs static/images static/videos temp_files locales celerybeat backups && \
+    chown -R botuser:botuser logs static temp_files locales celerybeat backups
 
 # Switch to non-root user
 USER botuser

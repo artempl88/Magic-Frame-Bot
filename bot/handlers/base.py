@@ -30,7 +30,7 @@ class BaseHandler:
             user = await db.get_user(user_id)
             
             # Получаем переводчик (по умолчанию русский)
-            translator = get_translator(user.language if user else 'ru')
+            translator = get_translator(user.language_code if user else 'ru')
             
             return user, translator
             

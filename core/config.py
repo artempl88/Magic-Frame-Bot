@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     
     # Telegram
     BOT_TOKEN: str = "test_token"
-    BOT_USERNAME: str = "SeedanceOfficialBot"
+    BOT_USERNAME: str = "MagicFrameBot"
     
     # WaveSpeed API
     WAVESPEED_API_KEY: str = "test_key"
