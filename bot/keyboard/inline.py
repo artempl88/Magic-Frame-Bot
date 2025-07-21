@@ -329,7 +329,7 @@ def get_price_management_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     builder.button(text=f"💳 {_('admin.prices.yookassa', default='Настройки ЮКассы')}", callback_data="price_yookassa")
     builder.button(text=f"📈 {_('admin.prices.history', default='История цен')}", callback_data="price_history")
     builder.button(text=f"🔄 {_('admin.prices.reset', default='Сбросить цены')}", callback_data="price_reset")
-    builder.button(text=f"◀️ {_('admin.back_to_admin')}", callback_data="admin")
+    builder.button(text="◀️ Админ-панель", callback_data="admin_panel")
     
     builder.adjust(2, 2, 1, 1)
     return builder.as_markup()

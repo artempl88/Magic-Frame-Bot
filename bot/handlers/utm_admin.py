@@ -47,7 +47,6 @@ async def show_utm_menu(callback: CallbackQuery, state: FSMContext):
 • Генерация UTM-ссылок
 • Трекинг переходов и конверсий
 • Детальная аналитика по источникам
-• Экспорт данных
 
 💡 <i>Создавайте отслеживаемые ссылки для измерения эффективности рекламных кампаний.</i>
 """
@@ -586,11 +585,10 @@ async def view_campaign(callback: CallbackQuery, state: FSMContext):
         toggle_text = "🔴 Деактивировать" if campaign.get('is_active', False) else "🟢 Активировать"
         builder.button(text=toggle_text, callback_data=f"utm_toggle_{campaign_id}")
         
-        builder.button(text="📥 Экспорт данных", callback_data=f"utm_export_{campaign_id}")
         builder.button(text="🗑️ Удалить кампанию", callback_data=f"utm_delete_{campaign_id}")
         builder.button(text="📋 Список кампаний", callback_data="utm_list_campaigns")
         builder.button(text="◀️ Меню UTM", callback_data="utm_analytics")
-        builder.adjust(2, 1, 1, 1)
+        builder.adjust(1, 1, 1)
         
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         await callback.answer()
