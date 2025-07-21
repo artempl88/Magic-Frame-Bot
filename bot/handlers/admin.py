@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import Union
+from typing import Union, Optional
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -1322,4 +1322,8 @@ async def back_to_admin_panel(callback: CallbackQuery):
     if not user:
         return
     
-    await admin_panel(callback.message)
+    await callback.message.edit_text(
+        f"👑 \u003cb\u003eПанель администратора\u003c/b\u003e\n\nВыберите действие:",
+        reply_markup=get_admin_keyboard(user.language_code or 'ru')
+    )
+    await BaseHandler.answer_callback(callback)

@@ -9,6 +9,7 @@ from . import balance
 from . import settings
 from . import support
 from . import admin
+from . import utm_admin
 
 # Экспортируем роутеры в правильном порядке
 # start должен быть первым для обработки /start
@@ -19,6 +20,7 @@ payment_handler = payment.router
 balance_handler = balance.router
 settings_handler = settings.router
 support_handler = support.router
+utm_admin_handler = utm_admin.router
 admin_handler = admin.router
 
 __all__ = [
@@ -28,5 +30,6 @@ __all__ = [
     'balance_handler',
     'settings_handler',
     'support_handler',
+    'utm_admin_handler',
     'admin_handler'
 ]

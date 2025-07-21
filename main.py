@@ -6,6 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from datetime import datetime
 
 from core.config import settings
 from bot.handlers import (
@@ -16,7 +17,7 @@ from bot.handlers import (
     settings_handler,
     admin_handler,
     support_handler,
-    utm_admin
+    utm_admin_handler
 )
 from bot.middlewares import (
     ThrottlingMiddleware,
@@ -43,6 +44,14 @@ def setup_logging():
 
 # Создаем экземпляр базы данных
 db = DatabaseService()
+
+async def health_check(request):
+    """Health check endpoint"""
+    return web.json_response({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "magic-frame-bot"
+    }, status=200)
 
 async def setup_bot_commands(bot: Bot):
     """Настройка команд бота"""
@@ -130,7 +139,7 @@ def register_routers(dp: Dispatcher):
     dp.include_router(balance_handler)
     dp.include_router(settings_handler)
     dp.include_router(support_handler)
-    dp.include_router(utm_admin)
+    dp.include_router(utm_admin_handler)
     dp.include_router(admin_handler)  # Админ роутер в конце
 
 def register_middlewares(dp: Dispatcher):
@@ -187,25 +196,25 @@ async def create_dispatcher():
     
     return dp
 
-def create_web_app():
+async def create_app():
     """Создание веб-приложения для webhook режима"""
-    async def create_app():
-        bot = await create_bot_instance()
-        dp = await create_dispatcher()
-        
-        app = web.Application()
-        
-        # Настройка вебхука
-        webhook_handler = SimpleRequestHandler(
-            dispatcher=dp,
-            bot=bot
-        )
-        webhook_handler.register(app, path=settings.WEBHOOK_PATH)
-        setup_application(app, dp, bot=bot)
-        
-        return app
+    bot = await create_bot_instance()
+    dp = await create_dispatcher()
     
-    return create_app()
+    app = web.Application()
+    
+    # Добавляем health check endpoint
+    app.router.add_get('/health', health_check)
+    
+    # Настройка вебхука
+    webhook_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot
+    )
+    webhook_handler.register(app, path=settings.WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+    
+    return app
 
 async def main_polling():
     """Запуск в режиме polling (для разработки)"""
@@ -222,49 +231,6 @@ async def main_polling():
     finally:
         await bot.session.close()
 
-async def main():
-    """Главная функция"""
-    # Инициализируем логирование
-    setup_logging()
-    
-    # Проверяем подключение к БД
-    try:
-        await db.check_connection()
-        logger.info("Database connection established")
-    except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        return
-    
-    # Создаем бота и диспетчер
-    bot = Bot(token=settings.BOT_TOKEN)
-    dp = Dispatcher()
-    
-    # Регистрируем роутеры
-    register_routers(dp)
-    
-    # Регистрируем middleware
-    register_middlewares(dp)
-    
-    # Запускаем задачу восстановления потерянных видео
-    try:
-        from bot.tasks import recover_lost_videos_task
-        logger.info("Starting lost videos recovery task")
-        await recover_lost_videos_task()
-    except Exception as e:
-        logger.error(f"Error starting recovery task: {e}")
-    
-    # Запускаем мониторинг API
-    api_monitor_task = asyncio.create_task(api_monitor.run_monitoring(bot))
-    
-    try:
-        logger.info("Bot started")
-        await dp.start_polling(bot)
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    finally:
-        api_monitor_task.cancel()
-        await bot.session.close()
-
 def main():
     """Основная функция запуска"""
     if settings.DEBUG:
@@ -275,7 +241,9 @@ def main():
             logger.info("Bot stopped by user")
     else:
         # Production режим - webhook
-        app = create_web_app()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        app = loop.run_until_complete(create_app())
         web.run_app(
             app,
             host="0.0.0.0",

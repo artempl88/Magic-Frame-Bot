@@ -315,3 +315,17 @@ class LanguageManager:
         # Размещаем по 2 кнопки в ряд
         builder.adjust(2)
         return builder.as_markup()
+def get_translator(language: str = 'ru'):
+    """
+    Возвращает функцию переводчик для указанного языка
+    
+    Args:
+        language: Код языка
+        
+    Returns:
+        Функция переводчика
+    """
+    def translator(key: str, **kwargs):
+        return i18n.get(key, language, **kwargs)
+    
+    return translator

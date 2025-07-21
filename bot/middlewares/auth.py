@@ -45,10 +45,16 @@ class AuthMiddleware(BaseMiddleware):
             logger.warning(f"Banned user {user.id} tried to access bot")
             return
         
-        # Проверяем обязательную подписку на канал (если настроено)
-        if getattr(settings, 'CHANNEL_USERNAME', None) and settings.CHANNEL_USERNAME.strip():
-            if not await self.check_subscription(event, user.id):
-                return
+        # Проверяем обязательную подписку на канал (если настроено и канал существует)
+        if (getattr(settings, 'CHANNEL_USERNAME', None) and 
+            settings.CHANNEL_USERNAME.strip() and
+            settings.CHANNEL_USERNAME != 'None'):
+            try:
+                if not await self.check_subscription(event, user.id):
+                    return
+            except Exception as e:
+                # Если канал не найден или другая ошибка - пропускаем проверку
+                logger.warning(f"Subscription check skipped for user {user.id}: {e}")
         
         # Добавляем пользователя в контекст
         data['db_user'] = db_user
@@ -101,7 +107,11 @@ class AuthMiddleware(BaseMiddleware):
                 return False
                 
         except Exception as e:
-            logger.error(f"Error checking subscription: {e}")
+            # Если чат не найден или недоступен - игнорируем проверку
+            if "chat not found" in str(e).lower():
+                logger.warning(f"Channel @{settings.CHANNEL_USERNAME} not found - skipping subscription check")
+            else:
+                logger.error(f"Error checking subscription: {e}")
             # В случае ошибки пропускаем проверку
             return True
         
@@ -167,6 +177,17 @@ async def check_subscription_callback(callback: CallbackQuery):
     """Проверка подписки после нажатия кнопки"""
     user_id = callback.from_user.id
     
+    if not (getattr(settings, 'CHANNEL_USERNAME', None) and 
+            settings.CHANNEL_USERNAME.strip() and
+            settings.CHANNEL_USERNAME != 'None'):
+        await callback.message.edit_text(
+            "✅ <b>Проверка подписки отключена</b>\n\n"
+            "Вы можете использовать все функции бота.\n"
+            "Нажмите /start для начала работы."
+        )
+        await callback.answer("✅ Добро пожаловать!")
+        return
+    
     try:
         # Проверяем подписку
         member = await callback.bot.get_chat_member(
@@ -191,7 +212,58 @@ async def check_subscription_callback(callback: CallbackQuery):
             
     except Exception as e:
         logger.error(f"Error checking subscription: {e}")
-        await callback.answer(
-            "❌ Ошибка проверки подписки",
-            show_alert=True
-        )
+        if "chat not found" in str(e).lower():
+            await callback.message.edit_text(
+                "✅ <b>Канал не найден</b>\n\n"
+                "Проверка подписки временно недоступна.\n"
+                "Вы можете использовать все функции бота.\n"
+                "Нажмите /start для начала работы."
+            )
+            await callback.answer("✅ Добро пожаловать!")
+        else:
+            await callback.answer(
+                "❌ Ошибка проверки подписки",
+                show_alert=True
+            )
+
+# Декоратор для проверки админских прав
+def admin_required(handler):
+    """
+    Декоратор для проверки админских прав
+    """
+    import functools
+    from aiogram.types import Message, CallbackQuery
+    from core.config import settings
+    
+    @functools.wraps(handler)
+    async def wrapper(*args, **kwargs):
+        # Найти объект с пользователем (Message или CallbackQuery)
+        event = None
+        for arg in args:
+            if isinstance(arg, (Message, CallbackQuery)):
+                event = arg
+                break
+        
+        if not event:
+            return await handler(*args, **kwargs)
+        
+        user_id = event.from_user.id
+        
+        # Проверяем админские права
+        if user_id not in settings.ADMIN_IDS:
+            # Получаем пользователя из БД для дополнительной проверки
+            db_user = await db.get_user(user_id)
+            if not (db_user and db_user.is_admin):
+                error_message = "❌ У вас нет прав администратора"
+                
+                if isinstance(event, Message):
+                    await event.answer(error_message)
+                elif isinstance(event, CallbackQuery):
+                    await event.answer(error_message, show_alert=True)
+                
+                logger.warning(f"Non-admin user {user_id} tried to access admin function")
+                return
+        
+        return await handler(*args, **kwargs)
+    
+    return wrapper
