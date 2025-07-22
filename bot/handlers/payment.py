@@ -252,21 +252,26 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("pay_stars_"))
 @ensure_user
-async def pay_with_stars(callback: CallbackQuery, bot: Bot):
+async def pay_with_stars(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
     """Оплата через Telegram Stars"""
     package_id = callback.data.split("_", 2)[2]
+    logger.info(f"[pay_with_stars] User {user.telegram_id} selecting package: {package_id}")
     
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        await callback.answer(i18n.get('shop.package_not_found', 'ru'), show_alert=True)
+        logger.error(f"[pay_with_stars] Package not found: {package_id}")
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
         return
+    
+    logger.info(f"[pay_with_stars] Package found: {package.name}, stars: {package.stars}")
     
     # Получаем актуальную цену в Stars
     from services.price_service import price_service
     stars_price = await price_service.get_effective_price(package_id, "telegram_stars")
     
     if not stars_price:
+        logger.error(f"[pay_with_stars] No stars price for package {package_id}")
         await callback.answer("❌ Цена в Stars не установлена", show_alert=True)
         return
     
@@ -274,9 +279,10 @@ async def pay_with_stars(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("pay_yookassa_"))
 @ensure_user
-async def pay_with_yookassa(callback: CallbackQuery, bot: Bot):
+async def pay_with_yookassa(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
     """Оплата через ЮКассу"""
     package_id = callback.data.split("_", 2)[2]
+    logger.info(f"[pay_with_yookassa] User {user.telegram_id} selecting package: {package_id}")
     
     # Проверяем что ЮКасса настроена
     from services.yookassa_service import yookassa_service
@@ -287,7 +293,8 @@ async def pay_with_yookassa(callback: CallbackQuery, bot: Bot):
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        await callback.answer(i18n.get('shop.package_not_found', 'ru'), show_alert=True)
+        logger.error(f"[pay_with_yookassa] Package not found: {package_id}")
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
         return
     
     # Получаем актуальную цену в рублях
