@@ -1491,6 +1491,118 @@ async def show_price_history(callback: CallbackQuery, user: User, **kwargs):
         logger.error(f"Error showing price history: {e}")
         await callback.answer("❌ Ошибка загрузки истории", show_alert=True)
 
+@router.callback_query(F.data == "price_history")
+@admin_only
+@ensure_user
+async def show_price_history(callback: CallbackQuery, user: User, **kwargs):
+    """Показать историю изменения цен"""
+    try:
+        from services.price_service import price_service
+        
+        history = await price_service.get_price_history()
+        
+        if not history:
+            text = "📈 <b>История изменения цен</b>\n\nИстория пуста. Цены еще не изменялись."
+        else:
+            text = "📈 <b>История изменения цен</b>\n\n"
+            
+            for record in history[:10]:  # Показываем последние 10 записей
+                status = "✅ активна" if record["is_active"] else "❌ удалена"
+                stars_price = record.get("stars_price", "—")
+                rub_price = f"{record['rub_price']:.2f} ₽" if record.get("rub_price") else "—"
+                date = record["updated_at"].strftime("%d.%m.%Y %H:%M") if record.get("updated_at") else "—"
+                
+                text += f"📦 <b>{record['package_id']}</b> ({status})\n"
+                text += f"   ⭐ {stars_price} Stars | 💳 {rub_price}\n"
+                text += f"   📅 {date}\n"
+                if record.get("notes"):
+                    text += f"   📝 {record['notes'][:50]}{'...' if len(record['notes']) > 50 else ''}\n"
+                text += "\n"
+        
+        from bot.keyboard.inline import get_price_management_keyboard
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_price_management_keyboard(user.language_code or 'ru')
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error showing price history: {e}")
+        await callback.answer("❌ Ошибка загрузки истории", show_alert=True)
+
+@router.callback_query(F.data == "price_reset")
+@admin_only
+@ensure_user
+async def reset_all_prices_confirm(callback: CallbackQuery, user: User, **kwargs):
+    """Подтверждение сброса всех цен"""
+    try:
+        text = """
+⚠️ <b>Сброс всех цен</b>
+
+Вы действительно хотите сбросить все кастомные цены к дефолтным значениям?
+
+Это действие:
+• Удалит все измененные цены в Stars
+• Удалит все установленные цены в рублях
+• Вернет цены из constants.py
+
+<b>Это действие нельзя отменить!</b>
+"""
+        
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✅ Да, сбросить все цены", callback_data="price_reset_execute")
+        builder.button(text="❌ Отмена", callback_data="admin_prices")
+        builder.adjust(1)
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error in reset_all_prices_confirm: {e}")
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+@router.callback_query(F.data == "price_reset_execute")
+@admin_only
+async def reset_all_prices_execute(callback: CallbackQuery, **kwargs):
+    """Выполнить сброс всех цен"""
+    try:
+        await callback.answer("🔄 Сбрасываю все цены...")
+        
+        from services.price_service import price_service
+        
+        success, message = await price_service.reset_all_prices(admin_id=callback.from_user.id)
+        
+        if success:
+            # Логируем действие
+            await BaseHandler.log_admin_action(
+                callback.from_user.id,
+                "price_reset_all",
+                {"message": message}
+            )
+            
+            text = f"""
+✅ <b>Цены успешно сброшены</b>
+
+{message}
+
+Все пакеты теперь используют дефолтные цены из constants.py
+"""
+        else:
+            text = f"❌ <b>Ошибка сброса цен</b>\n\n{message}"
+        
+        from bot.keyboard.inline import get_price_management_keyboard
+        user, _ = await BaseHandler.get_user_and_translator(callback)
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_price_management_keyboard(user.language_code or 'ru')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error executing price reset: {e}")
+        await callback.answer("❌ Критическая ошибка при сбросе цен", show_alert=True)
+
 @router.callback_query(F.data == "admin_panel")
 @admin_only
 @ensure_user
