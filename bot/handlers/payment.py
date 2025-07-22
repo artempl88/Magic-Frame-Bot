@@ -56,6 +56,8 @@ def ensure_user(func):
 @ensure_user
 async def show_shop(update: Message | CallbackQuery, user: User, _, **kwargs):
     """Показать магазин кредитов"""
+    logger.info(f"[show_shop] User {user.telegram_id} opened shop")
+    
     # Проверяем специальные предложения
     has_new_user_offer = False
     if user.total_bought == 0:
@@ -84,11 +86,18 @@ async def show_shop(update: Message | CallbackQuery, user: User, _, **kwargs):
 @ensure_user
 async def show_package_details(callback: CallbackQuery, user: User, _, **kwargs):
     """Показать детали пакета"""
+    logger.info(f"[show_package_details] Callback data: {callback.data}")
     package_id = callback.data.split("_", 1)[1]
+    logger.info(f"[show_package_details] Extracted package_id: {package_id}")
+    
+    # Логируем доступные пакеты
+    available_packages = [p.id for p in CREDIT_PACKAGES]
+    logger.info(f"[show_package_details] Available packages: {available_packages}")
     
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
+        logger.error(f"[show_package_details] Package not found: {package_id} not in {available_packages}")
         await callback.answer(_("shop.package_not_found"), show_alert=True)
         return
     
@@ -161,11 +170,18 @@ async def show_special_offers(callback: CallbackQuery, user: User, _, **kwargs):
 @ensure_user
 async def process_payment(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
     """Обработка оплаты пакета - показать выбор способа оплаты"""
+    logger.info(f"[process_payment] Callback data: {callback.data}")
     package_id = callback.data.split("_", 1)[1]
+    logger.info(f"[process_payment] Extracted package_id: {package_id}")
+    
+    # Логируем доступные пакеты
+    available_packages = [p.id for p in CREDIT_PACKAGES]
+    logger.info(f"[process_payment] Available packages: {available_packages}")
     
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
+        logger.error(f"[process_payment] Package not found: {package_id} not in {available_packages}")
         await callback.answer(_('shop.package_not_found'), show_alert=True)
         return
     
@@ -178,7 +194,9 @@ async def process_payment(callback: CallbackQuery, bot: Bot, user: User, _, **kw
     rub_price = await price_service.get_effective_price(package_id, "yookassa")
     yookassa_available = yookassa_service.is_available() and rub_price is not None
     
-    # Формируем текст с доступными способами оплаты
+    logger.info(f"[process_payment] Stars price: {stars_price}, RUB price: {rub_price}, YooKassa available: {yookassa_available}")
+    
+    # Форматируем текст с доступными способами оплаты
     text = f"""
 💳 <b>{_('payment.choose_method', default='Выберите способ оплаты')}</b>
 
@@ -220,25 +238,21 @@ async def process_payment(callback: CallbackQuery, bot: Bot, user: User, _, **kw
     await callback.answer()
 
 @router.callback_query(F.data.startswith("special_"))
-async def process_special_offer(callback: CallbackQuery, bot: Bot):
+@ensure_user
+async def process_special_offer(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
     """Обработка специального предложения"""
     offer_id = callback.data.split("_", 1)[1]
+    logger.info(f"[process_special_offer] Processing special offer: {offer_id}")
     
     # Находим предложение
     offer = next((o for o in SPECIAL_OFFERS if o['id'] == offer_id), None)
     if not offer:
-        await callback.answer(i18n.get('shop.offer_not_found', 'ru'), show_alert=True)
+        await callback.answer(_('shop.offer_not_found'), show_alert=True)
         return
     
     # Проверяем доступность
-    user = await db.get_user(callback.from_user.id)
     if offer['condition'] == 'one_time' and user.total_bought > 0:
-        user_lang = user.language_code or 'ru'
-        translate = lambda key, **kwargs: i18n.get(key, user_lang, **kwargs)
-        await callback.answer(
-            translate("shop.offer_expired"),
-            show_alert=True
-        )
+        await callback.answer(_("shop.offer_expired"), show_alert=True)
         return
     
     await create_stars_invoice(
@@ -254,13 +268,19 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot):
 @ensure_user
 async def pay_with_stars(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
     """Оплата через Telegram Stars"""
+    logger.info(f"[pay_with_stars] Received callback data: {callback.data}")
+    
     package_id = callback.data.split("_", 2)[2]
-    logger.info(f"[pay_with_stars] User {user.telegram_id} selecting package: {package_id}")
+    logger.info(f"[pay_with_stars] Extracted package_id: {package_id}")
+    
+    # Логируем доступные пакеты для отладки
+    available_packages = [p.id for p in CREDIT_PACKAGES]
+    logger.info(f"[pay_with_stars] Available packages: {available_packages}")
     
     # Находим пакет
     package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
     if not package:
-        logger.error(f"[pay_with_stars] Package not found: {package_id}")
+        logger.error(f"[pay_with_stars] Package not found: {package_id} not in {available_packages}")
         await callback.answer(_('shop.package_not_found'), show_alert=True)
         return
     
@@ -275,6 +295,7 @@ async def pay_with_stars(callback: CallbackQuery, bot: Bot, user: User, _, **kwa
         await callback.answer("❌ Цена в Stars не установлена", show_alert=True)
         return
     
+    logger.info(f"[pay_with_stars] Creating invoice for package {package_id} with {stars_price} Stars")
     await create_stars_invoice(callback, bot, package.credits, stars_price, package.name, package_id)
 
 @router.callback_query(F.data.startswith("pay_yookassa_"))
@@ -317,12 +338,16 @@ async def create_stars_invoice(
     is_special: bool = False
 ):
     """Создать инвойс для оплаты Telegram Stars"""
+    logger.info(f"[create_stars_invoice] Creating invoice: package_id={package_id}, credits={credits}, stars={stars}")
+    
     # Валидация параметров
     if credits <= 0 or credits > 100000:
+        logger.error(f"[create_stars_invoice] Invalid credits amount: {credits}")
         await callback.answer("❌ Некорректное количество кредитов", show_alert=True)
         return
         
     if stars <= 0 or stars > 10000:
+        logger.error(f"[create_stars_invoice] Invalid stars amount: {stars}")
         await callback.answer("❌ Некорректная цена", show_alert=True)
         return
     
@@ -330,6 +355,7 @@ async def create_stars_invoice(
     user = await db.get_user(user_id)
     
     if not user:
+        logger.error(f"[create_stars_invoice] User not found: {user_id}")
         await callback.answer(i18n.get('errors.user_not_found', 'ru'), show_alert=True)
         return
     
@@ -347,41 +373,51 @@ async def create_stars_invoice(
             package_id=package_id
         )
         
+        logger.info(f"[create_stars_invoice] Transaction created: id={transaction.id}")
+        
         # Создаем инвойс
         prices = [LabeledPrice(label=title, amount=stars)]
         
         # Создаем описание
         description = translate('shop.invoice.description', default='Покупка кредитов для генерации видео')
         
+        # Формируем payload - используем сокращенный формат чтобы поместиться в 64 символа
+        payload = f"st_{transaction.id}_{package_id}"
+        
+        # Проверяем длину payload
+        if len(payload) > 64:
+            logger.warning(f"[create_stars_invoice] Payload too long ({len(payload)}), truncating: {payload}")
+            # Используем альтернативный формат
+            payload = f"s{transaction.id}_{package_id}"[:64]
+        
+        logger.info(f"[create_stars_invoice] Final payload: {payload}")
+        
         # ВАЖНО: Для Telegram Stars нужны специфические параметры
         await bot.send_invoice(
             chat_id=callback.from_user.id,
             title=title[:32],  # Telegram ограничение на длину
             description=description[:255],  # Telegram ограничение на длину
-            payload=f"stars_{transaction.id}_{package_id}"[:64],  # Упрощенный payload
+            payload=payload,
             provider_token="",  # Для Stars должна быть пустая строка
             currency="XTR",  # Telegram Stars
             prices=prices,
-            # Убираем start_parameter - он может вызывать проблемы со Stars
-            # start_parameter=f"pay_{package_id}",
             need_name=False,
             need_phone_number=False,
             need_email=False,
             need_shipping_address=False,
             is_flexible=False,
-            # Не передаем reply_markup для Stars
         )
         
         await callback.answer(translate('shop.invoice.sent', default='Инвойс отправлен'))
         
         # Логируем создание инвойса
         logger.info(
-            f"Stars invoice created: user={user_id}, credits={credits}, "
-            f"stars={stars}, transaction_id={transaction.id}"
+            f"[create_stars_invoice] Stars invoice created successfully: user={user_id}, credits={credits}, "
+            f"stars={stars}, transaction_id={transaction.id}, payload={payload}"
         )
         
     except Exception as e:
-        logger.error(f"Error creating invoice: {e}")
+        logger.error(f"[create_stars_invoice] Error creating invoice: {type(e).__name__}: {e}")
         
         # Более детальная обработка ошибок
         error_text = str(e).lower()
@@ -410,9 +446,11 @@ async def create_stars_invoice(
 async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
     """Подтверждение платежа Telegram Stars перед оплатой"""
     payload = pre_checkout_query.invoice_payload
+    logger.info(f"[process_pre_checkout] Received payload: {payload}")
     
-    # Обновленная проверка payload
-    if not payload or not payload.startswith("stars_"):
+    # Обновленная проверка payload - поддерживаем оба формата
+    if not payload or not (payload.startswith("st_") or payload.startswith("s")):
+        logger.error(f"[process_pre_checkout] Invalid payload format: {payload}")
         await bot.answer_pre_checkout_query(
             pre_checkout_query.id,
             ok=False,
@@ -421,18 +459,25 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
         return
     
     try:
-        # Парсим payload: stars_{transaction_id}_{package_id}
-        parts = payload.split("_")
-        if len(parts) < 2:
-            raise ValueError("Invalid payload format")
-            
-        transaction_id = int(parts[1])
-        package_id = parts[2] if len(parts) > 2 else None
+        # Парсим payload: st_{transaction_id}_{package_id} или s{transaction_id}_{package_id}
+        if payload.startswith("st_"):
+            parts = payload.split("_", 2)
+            transaction_id = int(parts[1])
+            package_id = parts[2] if len(parts) > 2 else None
+        else:
+            # Формат s{transaction_id}_{package_id}
+            remaining = payload[1:]  # Убираем 's'
+            parts = remaining.split("_", 1)
+            transaction_id = int(parts[0])
+            package_id = parts[1] if len(parts) > 1 else None
+        
+        logger.info(f"[process_pre_checkout] Parsed: transaction_id={transaction_id}, package_id={package_id}")
         
         # Проверяем транзакцию
         transaction = await db.get_transaction(transaction_id)
         
         if not transaction:
+            logger.error(f"[process_pre_checkout] Transaction not found: {transaction_id}")
             await bot.answer_pre_checkout_query(
                 pre_checkout_query.id,
                 ok=False,
@@ -441,6 +486,7 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
             return
         
         if transaction.status != 'pending':
+            logger.warning(f"[process_pre_checkout] Transaction not pending: {transaction.status}")
             await bot.answer_pre_checkout_query(
                 pre_checkout_query.id,
                 ok=False,
@@ -451,7 +497,7 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
         # Проверяем валидность суммы Stars
         if pre_checkout_query.total_amount != transaction.stars_paid:
             logger.warning(
-                f"Stars amount mismatch: expected {transaction.stars_paid}, "
+                f"[process_pre_checkout] Stars amount mismatch: expected {transaction.stars_paid}, "
                 f"got {pre_checkout_query.total_amount}"
             )
             await bot.answer_pre_checkout_query(
@@ -463,6 +509,7 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
         
         # Проверяем валюту
         if pre_checkout_query.currency != "XTR":
+            logger.error(f"[process_pre_checkout] Invalid currency: {pre_checkout_query.currency}")
             await bot.answer_pre_checkout_query(
                 pre_checkout_query.id,
                 ok=False,
@@ -475,19 +522,19 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
         
         # Логируем подтверждение
         logger.info(
-            f"Stars pre-checkout approved: user={pre_checkout_query.from_user.id}, "
+            f"[process_pre_checkout] Pre-checkout approved: user={pre_checkout_query.from_user.id}, "
             f"transaction_id={transaction_id}, stars={pre_checkout_query.total_amount}"
         )
         
     except (ValueError, IndexError) as e:
-        logger.error(f"Error parsing pre-checkout payload: {e}, payload: {payload}")
+        logger.error(f"[process_pre_checkout] Error parsing payload: {e}, payload: {payload}")
         await bot.answer_pre_checkout_query(
             pre_checkout_query.id,
             ok=False,
             error_message="Payment data processing error"
         )
     except Exception as e:
-        logger.error(f"Unexpected error in pre-checkout: {e}")
+        logger.error(f"[process_pre_checkout] Unexpected error: {type(e).__name__}: {e}")
         await bot.answer_pre_checkout_query(
             pre_checkout_query.id,
             ok=False,
@@ -499,17 +546,27 @@ async def process_successful_payment(message: Message):
     """Обработка успешного платежа Telegram Stars"""
     payment = message.successful_payment
     payload = payment.invoice_payload
+    logger.info(f"[process_successful_payment] Received payload: {payload}")
     
-    # Извлекаем ID транзакции из payload
-    if not payload or not payload.startswith("stars_transaction_"):
-        logger.error(f"Invalid Stars payment payload: {payload}")
+    # Извлекаем ID транзакции из payload - поддерживаем оба формата
+    if not payload or not (payload.startswith("st_") or payload.startswith("s")):
+        logger.error(f"[process_successful_payment] Invalid Stars payment payload: {payload}")
         return
     
     try:
-        # Парсим payload: stars_transaction_{transaction_id}_{package_id}
-        parts = payload.split("_")
-        transaction_id = int(parts[2])
-        package_id = parts[3] if len(parts) > 3 else None
+        # Парсим payload
+        if payload.startswith("st_"):
+            parts = payload.split("_", 2)
+            transaction_id = int(parts[1])
+            package_id = parts[2] if len(parts) > 2 else None
+        else:
+            # Формат s{transaction_id}_{package_id}
+            remaining = payload[1:]  # Убираем 's'
+            parts = remaining.split("_", 1)
+            transaction_id = int(parts[0])
+            package_id = parts[1] if len(parts) > 1 else None
+        
+        logger.info(f"[process_successful_payment] Parsed: transaction_id={transaction_id}, package_id={package_id}")
         
         # Завершаем транзакцию с сохранением telegram_charge_id
         await db.complete_transaction(
@@ -522,7 +579,7 @@ async def process_successful_payment(message: Message):
         transaction = await db.get_transaction(transaction_id)
         
         if not user or not transaction:
-            logger.error(f"User or transaction not found after payment: user_id={message.from_user.id}, transaction_id={transaction_id}")
+            logger.error(f"[process_successful_payment] User or transaction not found after payment: user_id={message.from_user.id}, transaction_id={transaction_id}")
             return
         
         # Функция перевода для языка пользователя
@@ -565,11 +622,11 @@ async def process_successful_payment(message: Message):
                 credits_purchased=transaction.amount
             )
         except Exception as e:
-            logger.error(f"Error tracking UTM purchase event: {e}")
+            logger.error(f"[process_successful_payment] Error tracking UTM purchase event: {e}")
         
         # Логируем успешный платеж Stars
         logger.info(
-            f"Successful Telegram Stars payment: user={message.from_user.id}, "
+            f"[process_successful_payment] Successful Telegram Stars payment: user={message.from_user.id}, "
             f"credits={transaction.amount}, stars={payment.total_amount}, "
             f"charge_id={payment.telegram_payment_charge_id}, "
             f"transaction_id={transaction_id}"
@@ -594,10 +651,10 @@ async def process_successful_payment(message: Message):
                     parse_mode='HTML'
                 )
             except Exception as e:
-                logger.error(f"Failed to send admin notification: {e}")
+                logger.error(f"[process_successful_payment] Failed to send admin notification: {e}")
         
     except (ValueError, IndexError) as e:
-        logger.error(f"Error processing Stars payment: {e}, payload: {payload}")
+        logger.error(f"[process_successful_payment] Error processing Stars payment: {e}, payload: {payload}")
         
         # Функция перевода для ошибки
         user = await db.get_user(message.from_user.id)
@@ -610,7 +667,7 @@ async def process_successful_payment(message: Message):
             ).as_markup()
         )
     except Exception as e:
-        logger.error(f"Unexpected error processing payment: {e}")
+        logger.error(f"[process_successful_payment] Unexpected error processing payment: {type(e).__name__}: {e}")
         
         # Функция перевода для ошибки
         user = await db.get_user(message.from_user.id)
