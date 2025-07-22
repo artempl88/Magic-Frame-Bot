@@ -372,13 +372,16 @@ class UTMAnalyticsService:
                 'unique_users': row.unique_users
             })
         
-        # Топ часы активности (используем to_char для PostgreSQL)
+        # Топ часы активности - ИСПРАВЛЕННЫЙ ЗАПРОС
+        # Создаем алиас для выражения to_char
+        hour_expr = func.to_char(UTMClick.clicked_at, 'HH24:00')
+        
         hour_result = await session.execute(
             select(
-                func.to_char(UTMClick.clicked_at, 'HH24:00').label('hour'),
+                hour_expr.label('hour'),
                 func.count(UTMClick.id).label('clicks')
             ).where(and_(*filters))
-            .group_by(func.to_char(UTMClick.clicked_at, 'HH24:00'))
+            .group_by(hour_expr)  # Группируем по тому же выражению
             .order_by(desc('clicks'))
             .limit(5)
         )
