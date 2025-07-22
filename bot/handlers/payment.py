@@ -28,6 +28,11 @@ i18n = I18n()
 
 router = Router(name="payment")
 
+# ⚠️ ВАЖНО: ПОРЯДОК ОБРАБОТЧИКОВ КРИТИЧЕН!
+# В aiogram обработчики проверяются по порядку регистрации.
+# Более специфичные фильтры (pay_stars_, pay_yookassa_) должны идти 
+# ПЕРЕД более общими (pay_), иначе общий обработчик перехватит все события.
+
 # Добавляем декоратор для проверки пользователя
 def ensure_user(func):
     """Декоратор для проверки существования пользователя"""
@@ -57,6 +62,10 @@ def ensure_user(func):
 async def show_shop(update: Message | CallbackQuery, user: User, _, **kwargs):
     """Показать магазин кредитов"""
     logger.info(f"[show_shop] User {user.telegram_id} opened shop")
+    
+    # Логируем доступные пакеты при открытии магазина
+    available_packages = [(p.id, p.name) for p in CREDIT_PACKAGES]
+    logger.info(f"[show_shop] Available packages in CREDIT_PACKAGES: {available_packages}")
     
     # Проверяем специальные предложения
     has_new_user_offer = False
@@ -166,11 +175,94 @@ async def show_special_offers(callback: CallbackQuery, user: User, _, **kwargs):
     await callback.message.edit_reply_markup(reply_markup=builder.as_markup())
     await callback.answer()
 
+# ВАЖНО: Более специфичные обработчики должны идти ПЕРЕД более общими!
+
+@router.callback_query(F.data.startswith("pay_stars_"))
+@ensure_user
+async def pay_with_stars(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
+    """Оплата через Telegram Stars"""
+    logger.info(f"[pay_with_stars] Received callback data: {callback.data}")
+    
+    package_id = callback.data.split("_", 2)[2]
+    logger.info(f"[pay_with_stars] Extracted package_id: {package_id}")
+    
+    # Логируем доступные пакеты для отладки
+    available_packages = [p.id for p in CREDIT_PACKAGES]
+    logger.info(f"[pay_with_stars] Available packages: {available_packages}")
+    
+    # Находим пакет
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        logger.error(f"[pay_with_stars] Package not found: {package_id} not in {available_packages}")
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        return
+    
+    logger.info(f"[pay_with_stars] Package found: {package.name}, stars: {package.stars}")
+    
+    # Получаем актуальную цену в Stars
+    from services.price_service import price_service
+    stars_price = await price_service.get_effective_price(package_id, "telegram_stars")
+    
+    if not stars_price:
+        logger.error(f"[pay_with_stars] No stars price for package {package_id}")
+        await callback.answer("❌ Цена в Stars не установлена", show_alert=True)
+        return
+    
+    logger.info(f"[pay_with_stars] Creating invoice for package {package_id} with {stars_price} Stars")
+    await create_stars_invoice(callback, bot, package.credits, stars_price, package.name, package_id)
+
+@router.callback_query(F.data.startswith("pay_yookassa_"))
+@ensure_user
+async def pay_with_yookassa(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
+    """Оплата через ЮКассу"""
+    logger.info(f"[pay_with_yookassa] Received callback data: {callback.data}")
+    
+    package_id = callback.data.split("_", 2)[2]
+    logger.info(f"[pay_with_yookassa] Extracted package_id: {package_id}")
+    
+    # Логируем доступные пакеты для отладки
+    available_packages = [p.id for p in CREDIT_PACKAGES]
+    logger.info(f"[pay_with_yookassa] Available packages: {available_packages}")
+    
+    # Проверяем что ЮКасса настроена
+    from services.yookassa_service import yookassa_service
+    if not yookassa_service.is_available():
+        logger.error("[pay_with_yookassa] YooKassa is not configured")
+        await callback.answer("❌ ЮКасса не настроена", show_alert=True)
+        return
+    
+    # Находим пакет
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        logger.error(f"[pay_with_yookassa] Package not found: {package_id} not in {available_packages}")
+        await callback.answer(_('shop.package_not_found'), show_alert=True)
+        return
+    
+    logger.info(f"[pay_with_yookassa] Package found: {package.name}, credits: {package.credits}")
+    
+    # Получаем актуальную цену в рублях
+    from services.price_service import price_service
+    rub_price = await price_service.get_effective_price(package_id, "yookassa")
+    
+    if not rub_price:
+        await callback.answer("❌ Цена в рублях не установлена", show_alert=True)
+        return
+    
+    await create_yookassa_payment(callback, bot, package.credits, rub_price, package.name, package_id)
+
 @router.callback_query(F.data.startswith("pay_"))
 @ensure_user
 async def process_payment(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
     """Обработка оплаты пакета - показать выбор способа оплаты"""
     logger.info(f"[process_payment] Callback data: {callback.data}")
+    
+    # ВАЖНО: Если callback_data = "pay_pack_300", то нужен split("_", 1)
+    # Но если callback_data = "pay_stars_pack_300", то это обработается в pay_with_stars
+    # Здесь обрабатываем только "pay_{package_id}"
+    if callback.data.startswith("pay_stars_") or callback.data.startswith("pay_yookassa_"):
+        # Эти случаи обрабатываются в других handlers
+        return
+    
     package_id = callback.data.split("_", 1)[1]
     logger.info(f"[process_payment] Extracted package_id: {package_id}")
     
@@ -263,70 +355,6 @@ async def process_special_offer(callback: CallbackQuery, bot: Bot, user: User, _
         offer_id,
         is_special=True
     )
-
-@router.callback_query(F.data.startswith("pay_stars_"))
-@ensure_user
-async def pay_with_stars(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
-    """Оплата через Telegram Stars"""
-    logger.info(f"[pay_with_stars] Received callback data: {callback.data}")
-    
-    package_id = callback.data.split("_", 2)[2]
-    logger.info(f"[pay_with_stars] Extracted package_id: {package_id}")
-    
-    # Логируем доступные пакеты для отладки
-    available_packages = [p.id for p in CREDIT_PACKAGES]
-    logger.info(f"[pay_with_stars] Available packages: {available_packages}")
-    
-    # Находим пакет
-    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
-    if not package:
-        logger.error(f"[pay_with_stars] Package not found: {package_id} not in {available_packages}")
-        await callback.answer(_('shop.package_not_found'), show_alert=True)
-        return
-    
-    logger.info(f"[pay_with_stars] Package found: {package.name}, stars: {package.stars}")
-    
-    # Получаем актуальную цену в Stars
-    from services.price_service import price_service
-    stars_price = await price_service.get_effective_price(package_id, "telegram_stars")
-    
-    if not stars_price:
-        logger.error(f"[pay_with_stars] No stars price for package {package_id}")
-        await callback.answer("❌ Цена в Stars не установлена", show_alert=True)
-        return
-    
-    logger.info(f"[pay_with_stars] Creating invoice for package {package_id} with {stars_price} Stars")
-    await create_stars_invoice(callback, bot, package.credits, stars_price, package.name, package_id)
-
-@router.callback_query(F.data.startswith("pay_yookassa_"))
-@ensure_user
-async def pay_with_yookassa(callback: CallbackQuery, bot: Bot, user: User, _, **kwargs):
-    """Оплата через ЮКассу"""
-    package_id = callback.data.split("_", 2)[2]
-    logger.info(f"[pay_with_yookassa] User {user.telegram_id} selecting package: {package_id}")
-    
-    # Проверяем что ЮКасса настроена
-    from services.yookassa_service import yookassa_service
-    if not yookassa_service.is_available():
-        await callback.answer("❌ ЮКасса не настроена", show_alert=True)
-        return
-    
-    # Находим пакет
-    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
-    if not package:
-        logger.error(f"[pay_with_yookassa] Package not found: {package_id}")
-        await callback.answer(_('shop.package_not_found'), show_alert=True)
-        return
-    
-    # Получаем актуальную цену в рублях
-    from services.price_service import price_service
-    rub_price = await price_service.get_effective_price(package_id, "yookassa")
-    
-    if not rub_price:
-        await callback.answer("❌ Цена в рублях не установлена", show_alert=True)
-        return
-    
-    await create_yookassa_payment(callback, bot, package.credits, rub_price, package.name, package_id)
 
 async def create_stars_invoice(
     callback: CallbackQuery,
