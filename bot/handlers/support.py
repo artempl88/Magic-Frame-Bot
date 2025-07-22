@@ -27,10 +27,28 @@ class SupportStates(StatesGroup):
 
 router = Router(name="support")
 
+# Исправлено: раздельные обработчики для Message и CallbackQuery
 @router.message(F.text == "/support")
+async def support_menu_message(message: Message):
+    """Показать меню поддержки через команду"""
+    try:
+        await message.answer(
+            _('support.menu.choose_option'),
+            reply_markup=InlineKeyboardBuilder()
+            .button(text=_('support.menu.faq_button'), callback_data="support_faq")
+            .button(text=_('support.menu.new_ticket_button'), callback_data="support_new_ticket")
+            .button(text=_('support.my_tickets'), callback_data="my_tickets")
+            .button(text=f"◀️ {_('common.back')}", callback_data="back_to_menu")
+            .adjust(1)
+            .as_markup()
+        )
+    except Exception as e:
+        logger.error(f"Error in support_menu_message: {e}")
+        await message.answer(_('errors.error'))
+
 @router.callback_query(F.data == "support")
-async def support_menu(callback: CallbackQuery):
-    """Показать меню поддержки"""
+async def support_menu_callback(callback: CallbackQuery):
+    """Показать меню поддержки через callback"""
     try:
         await callback.message.edit_text(
             _('support.menu.choose_option'),
@@ -44,7 +62,7 @@ async def support_menu(callback: CallbackQuery):
         )
         await callback.answer()
     except Exception as e:
-        logger.error(f"Error in support_menu: {e}")
+        logger.error(f"Error in support_menu_callback: {e}")
         await callback.answer(_('errors.error'), show_alert=True)
 
 @router.callback_query(F.data == "support_faq")
@@ -108,6 +126,7 @@ async def support_new_ticket(callback: CallbackQuery, state: FSMContext):
             reply_markup=builder.as_markup()
         )
         await callback.answer()
+        await state.set_state(SupportStates.choosing_category)
     except Exception as e:
         logger.error(f"Error in support_new_ticket: {e}")
         await callback.answer(_('errors.error'), show_alert=True)
@@ -437,9 +456,10 @@ async def process_reply(message: Message, state: FSMContext):
             await state.clear()
             return
         
-        # Закрываем тикет
+        # Закрываем тикет и сохраняем ответ
         ticket.status = 'resolved'
         ticket.admin_id = message.from_user.id
+        ticket.admin_response = message.text
         ticket.updated_at = datetime.utcnow()
         
         await session.commit()
@@ -487,7 +507,15 @@ async def my_tickets(callback: CallbackQuery):
             tickets = tickets.scalars().all()
         
         if not tickets:
-            await callback.answer(_('support.ticket.my_tickets_empty'), show_alert=True)
+            await callback.message.edit_text(
+                _('support.ticket.my_tickets_empty'),
+                reply_markup=InlineKeyboardBuilder()
+                .button(text=_('support.menu.new_ticket_button'), callback_data="support_new_ticket")
+                .button(text=f"◀️ {_('common.back')}", callback_data="support")
+                .adjust(1)
+                .as_markup()
+            )
+            await callback.answer()
             return
         
         text = _('support.ticket.my_tickets_list') + "\n\n"

@@ -7,6 +7,9 @@ from core.constants import (
     DURATIONS, ASPECT_RATIOS, MODEL_INFO
 )
 
+# Импортируем i18n глобально для оптимизации
+from bot.middlewares.i18n import i18n as global_i18n
+
 def get_language_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора языка"""
     builder = InlineKeyboardBuilder()
@@ -14,7 +17,7 @@ def get_language_keyboard() -> InlineKeyboardMarkup:
     for code, lang_info in LANGUAGES.items():
         builder.button(
             text=f"{lang_info['emoji']} {lang_info['name']}",
-            callback_data=f"set_language_{code}"  # Изменено для соответствия обработчику
+            callback_data=f"set_language_{code}"
         )
     
     builder.adjust(2)
@@ -22,8 +25,7 @@ def get_language_keyboard() -> InlineKeyboardMarkup:
 
 def get_aspect_ratio_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Выбор соотношения сторон"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -43,8 +45,7 @@ def get_aspect_ratio_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_generation_confirm_keyboard(cost: int, language: str = "ru") -> InlineKeyboardMarkup:
     """Подтверждение генерации"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -62,8 +63,7 @@ def get_generation_confirm_keyboard(cost: int, language: str = "ru") -> InlineKe
 
 def get_shop_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Магазин кредитов"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -98,8 +98,7 @@ def get_shop_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_package_details_keyboard(package_id: str, language: str = "ru") -> InlineKeyboardMarkup:
     """Детали пакета"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -117,8 +116,7 @@ def get_package_details_keyboard(package_id: str, language: str = "ru") -> Inlin
 
 def get_payment_keyboard(url: str, language: str = "ru") -> InlineKeyboardMarkup:
     """Кнопка оплаты"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -136,8 +134,7 @@ def get_payment_keyboard(url: str, language: str = "ru") -> InlineKeyboardMarkup
 
 def get_generation_rating_keyboard(generation_id: int, language: str = "ru") -> InlineKeyboardMarkup:
     """Оценка генерации"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -163,8 +160,7 @@ def get_history_keyboard(
     language: str = "ru"
 ) -> InlineKeyboardMarkup:
     """История генераций"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -214,8 +210,7 @@ def get_history_keyboard(
 
 def get_settings_keyboard(user_settings: dict, language: str = "ru") -> InlineKeyboardMarkup:
     """Настройки пользователя"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -269,8 +264,7 @@ def get_settings_keyboard(user_settings: dict, language: str = "ru") -> InlineKe
 
 def get_admin_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Админ панель"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -286,13 +280,12 @@ def get_admin_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     builder.button(text=f"📋 {_('admin.logs.title')}", callback_data="admin_logs")
     builder.button(text=f"◀️ {_('menu.main_menu')}", callback_data="back_to_menu")
     
-    builder.adjust(2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 2, 1)
     return builder.as_markup()
 
 def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Поддержка"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -319,8 +312,7 @@ def get_support_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_price_management_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Клавиатура управления ценами"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -336,9 +328,7 @@ def get_price_management_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_package_edit_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Клавиатура выбора пакета для редактирования"""
-    from bot.middlewares.i18n import i18n
-    from core.constants import CREDIT_PACKAGES
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -355,8 +345,7 @@ def get_package_edit_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_price_edit_options_keyboard(package_id: str, language: str = "ru") -> InlineKeyboardMarkup:
     """Клавиатура опций редактирования цены"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -371,8 +360,7 @@ def get_price_edit_options_keyboard(package_id: str, language: str = "ru") -> In
 
 def get_backup_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Клавиатура управления бэкапами"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -402,8 +390,7 @@ def get_backup_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_backup_list_keyboard(backups: list, language: str = "ru") -> InlineKeyboardMarkup:
     """Клавиатура со списком бэкапов"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -432,8 +419,7 @@ def get_backup_list_keyboard(backups: list, language: str = "ru") -> InlineKeybo
 
 def get_backup_info_keyboard(filename: str, language: str = "ru") -> InlineKeyboardMarkup:
     """Клавиатура для действий с конкретным бэкапом"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -455,8 +441,7 @@ def get_backup_info_keyboard(filename: str, language: str = "ru") -> InlineKeybo
 
 def get_cancel_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Кнопка отмены для генерации"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     builder.button(text=f"❌ {_('common.cancel')}", callback_data="cancel_generation")
@@ -464,8 +449,7 @@ def get_cancel_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_simple_cancel_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Простая кнопка отмены для общих случаев"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     builder.button(text=f"❌ {_('common.cancel')}", callback_data="cancel")
@@ -473,8 +457,7 @@ def get_simple_cancel_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_back_keyboard(callback_data: str = "back", language: str = "ru") -> InlineKeyboardMarkup:
     """Простая кнопка назад"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     builder.button(text=f"◀️ {_('common.back')}", callback_data=callback_data)
@@ -482,8 +465,7 @@ def get_back_keyboard(callback_data: str = "back", language: str = "ru") -> Inli
 
 def get_main_menu(language: str = "ru", balance: int = 0) -> InlineKeyboardMarkup:
     """Главное меню"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -493,16 +475,15 @@ def get_main_menu(language: str = "ru", balance: int = 0) -> InlineKeyboardMarku
     builder.button(text=f"💎 {_('menu.buy_credits')}", callback_data="shop")
     builder.button(text=f"📜 {_('menu.history')}", callback_data="history")
     builder.button(text=f"⚙️ {_('menu.settings')}", callback_data="settings")
-    builder.button(text=f"❓ {_('menu.help')}", callback_data="help_menu")  # Изменено для избежания конфликта
+    builder.button(text=f"❓ {_('menu.help')}", callback_data="help_menu")
     builder.button(text=f"💬 {_('menu.support')}", callback_data="support")
     
-    builder.adjust(2, 2, 2, 2)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 def get_generation_mode_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Выбор режима генерации"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -524,8 +505,7 @@ def get_generation_mode_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
 
 def get_model_selection_keyboard(mode: str, language: str = "ru") -> InlineKeyboardMarkup:
     """Выбор модели"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -574,8 +554,7 @@ def get_model_selection_keyboard(mode: str, language: str = "ru") -> InlineKeybo
 
 def get_resolution_keyboard(model_type: str, language: str = "ru") -> InlineKeyboardMarkup:
     """Выбор разрешения"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     
@@ -600,8 +579,7 @@ def get_resolution_keyboard(model_type: str, language: str = "ru") -> InlineKeyb
 
 def get_duration_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     """Выбор длительности"""
-    from bot.middlewares.i18n import i18n
-    _ = lambda key, **kwargs: i18n.get(key, language, **kwargs)
+    _ = lambda key, **kwargs: global_i18n.get(key, language, **kwargs)
     
     builder = InlineKeyboardBuilder()
     

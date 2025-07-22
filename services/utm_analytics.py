@@ -284,7 +284,10 @@ class UTMAnalyticsService:
                     func.count(UTMEvent.id).label('count'),
                     func.sum(UTMEvent.revenue).label('total_revenue'),
                     func.sum(UTMEvent.credits_spent).label('total_credits_spent'),
-                    func.sum(UTMEvent.credits_purchased).label('total_credits_purchased')
+                    func.sum(UTMEvent.credits_purchased).label('total_credits_purchased'),
+                    func.avg(UTMEvent.time_from_click).label('avg_time_to_convert_seconds'),
+                    func.min(UTMEvent.time_from_click).label('min_time_to_convert_seconds'),
+                    func.max(UTMEvent.time_from_click).label('max_time_to_convert_seconds')
                 ).where(and_(*event_filters))
                 .group_by(UTMEvent.event_type)
             )
@@ -295,15 +298,22 @@ class UTMAnalyticsService:
                     'count': row.count,
                     'total_revenue': float(row.total_revenue) if row.total_revenue else 0.0,
                     'total_credits_spent': row.total_credits_spent or 0,
-                    'total_credits_purchased': row.total_credits_purchased or 0
+                    'total_credits_purchased': row.total_credits_purchased or 0,
+                    'avg_time_to_convert_minutes': round(row.avg_time_to_convert_seconds / 60, 1) if row.avg_time_to_convert_seconds else 0,
+                    'min_time_to_convert_seconds': row.min_time_to_convert_seconds or 0,
+                    'max_time_to_convert_seconds': row.max_time_to_convert_seconds or 0
                 }
             
             # Конверсии
+            total_clicks = click_stats.total_clicks or 0
             registrations = events_stats.get('registration', {}).get('count', 0)
             purchases = events_stats.get('purchase', {}).get('count', 0)
             
-            conversion_registration = (registrations / click_stats.total_clicks * 100) if click_stats.total_clicks > 0 else 0
+            conversion_registration = (registrations / total_clicks * 100) if total_clicks > 0 else 0
             conversion_purchase = (purchases / registrations * 100) if registrations > 0 else 0
+            
+            # Статистика по времени
+            timeline_data = await self._get_timeline_analytics(campaign_id, start_date, end_date, session)
             
             return {
                 'campaign': {
@@ -318,7 +328,7 @@ class UTMAnalyticsService:
                     'is_active': campaign.is_active
                 },
                 'clicks': {
-                    'total_clicks': click_stats.total_clicks or 0,
+                    'total_clicks': total_clicks,
                     'unique_users': click_stats.unique_users or 0,
                     'first_visits': click_stats.first_visits or 0
                 },
@@ -330,8 +340,60 @@ class UTMAnalyticsService:
                 'revenue': {
                     'total': sum(stats.get('total_revenue', 0) for stats in events_stats.values()),
                     'per_click': 0  # Будет вычислено ниже
-                }
+                },
+                'timeline': timeline_data
             }
+    
+    async def _get_timeline_analytics(self, campaign_id: int, start_date: Optional[datetime], end_date: Optional[datetime], session) -> Dict:
+        """Получает аналитику по времени для кампании"""
+        filters = [UTMClick.campaign_id == campaign_id]
+        if start_date:
+            filters.append(UTMClick.clicked_at >= start_date)
+        if end_date:
+            filters.append(UTMClick.clicked_at <= end_date)
+        
+        # Статистика по дням
+        daily_result = await session.execute(
+            select(
+                func.date(UTMClick.clicked_at).label('date'),
+                func.count(UTMClick.id).label('clicks'),
+                func.count(func.distinct(UTMClick.telegram_id)).label('unique_users')
+            ).where(and_(*filters))
+            .group_by(func.date(UTMClick.clicked_at))
+            .order_by(desc('date'))
+            .limit(30)
+        )
+        
+        daily_stats = []
+        for row in daily_result:
+            daily_stats.append({
+                'date': row.date.isoformat(),
+                'clicks': row.clicks,
+                'unique_users': row.unique_users
+            })
+        
+        # Топ часы активности
+        hour_result = await session.execute(
+            select(
+                func.strftime('%H:00', UTMClick.clicked_at).label('hour'),
+                func.count(UTMClick.id).label('clicks')
+            ).where(and_(*filters))
+            .group_by(func.strftime('%H:00', UTMClick.clicked_at))
+            .order_by(desc('clicks'))
+            .limit(5)
+        )
+        
+        top_hours = []
+        for row in hour_result:
+            top_hours.append({
+                'hour': row.hour,
+                'clicks': row.clicks
+            })
+        
+        return {
+            'daily_stats': daily_stats,
+            'top_hours': top_hours
+        }
     
     async def get_campaigns_list(
         self,
@@ -388,15 +450,33 @@ class UTMAnalyticsService:
         """Экспортирует данные кампании для CSV/Excel"""
         
         async with db.async_session() as session:
+            # Получаем информацию о кампании
+            campaign_result = await session.execute(
+                select(UTMCampaign).where(UTMCampaign.id == campaign_id)
+            )
+            campaign = campaign_result.scalar()
+            
+            if not campaign:
+                return []
+            
             # Получаем детальные данные по кликам и событиям
             query = """
             SELECT 
+                c.id as click_id,
                 c.clicked_at,
                 c.telegram_id,
                 c.is_first_visit,
                 c.is_registered_user,
+                c.user_agent,
+                c.ip_address,
+                c.referrer,
                 u.username,
                 u.first_name,
+                u.last_name,
+                u.language_code,
+                u.balance as user_credits_balance,
+                u.is_premium,
+                u.created_at as user_registration_date,
                 e.event_type,
                 e.event_at,
                 e.revenue,
@@ -425,20 +505,53 @@ class UTMAnalyticsService:
             
             data = []
             for row in result:
+                # Вычисляем производные метрики
+                clicked_at = row.clicked_at
+                click_date = clicked_at.date()
+                click_hour = clicked_at.hour
+                click_day_of_week = clicked_at.strftime('%A')
+                
+                time_from_click_minutes = round((row.time_from_click or 0) / 60, 2) if row.time_from_click else None
+                time_from_click_hours = round((row.time_from_click or 0) / 3600, 2) if row.time_from_click else None
+                
+                has_converted = bool(row.event_type)
+                conversion_type = row.event_type if has_converted else None
+                
                 data.append({
-                    'clicked_at': row.clicked_at.isoformat() if row.clicked_at else '',
-                    'telegram_id': row.telegram_id,
+                    f'Кампания_{campaign_id}': campaign.name,
+                    'utm_source': campaign.utm_source,
+                    'utm_medium': campaign.utm_medium,
+                    'utm_campaign': campaign.utm_campaign,
+                    'utm_content': campaign.utm_content or '',
+                    'click_id': row.click_id,
+                    'clicked_at': clicked_at.isoformat() if clicked_at else '',
+                    'click_date': str(click_date),
+                    'click_hour': click_hour,
+                    'click_day_of_week': click_day_of_week,
+                    'telegram_id': row.telegram_id or '',
                     'username': row.username or '',
                     'first_name': row.first_name or '',
+                    'last_name': row.last_name or '',
+                    'language_code': row.language_code or '',
                     'is_first_visit': row.is_first_visit,
                     'is_registered_user': row.is_registered_user,
+                    'is_premium': row.is_premium if hasattr(row, 'is_premium') else False,
+                    'user_credits_balance': row.user_credits_balance or 0,
+                    'user_registration_date': row.user_registration_date.isoformat() if row.user_registration_date else '',
+                    'user_agent': row.user_agent or '',
+                    'ip_address': row.ip_address or '',
+                    'referrer': row.referrer or '',
                     'event_type': row.event_type or '',
                     'event_at': row.event_at.isoformat() if row.event_at else '',
                     'revenue': float(row.revenue) if row.revenue else 0.0,
                     'credits_spent': row.credits_spent or 0,
                     'credits_purchased': row.credits_purchased or 0,
-                    'time_from_click_seconds': row.time_from_click or 0,
-                    'time_from_click_minutes': round((row.time_from_click or 0) / 60, 2)
+                    'time_from_click_seconds': row.time_from_click or '',
+                    'time_from_click_minutes': time_from_click_minutes or '',
+                    'time_from_click_hours': time_from_click_hours or '',
+                    'has_converted': has_converted,
+                    'conversion_type': conversion_type or '',
+                    'export_timestamp': datetime.utcnow().isoformat()
                 })
             
             return data
@@ -496,7 +609,6 @@ class UTMAnalyticsService:
             
             return analytics
 
-
     async def delete_utm_campaign(self, campaign_id: int, admin_id: int) -> bool:
         """Удаляет UTM кампанию и все связанные данные"""
         
@@ -538,6 +650,132 @@ class UTMAnalyticsService:
                 await session.rollback()
                 logger.error(f"Error deleting UTM campaign {campaign_id}: {e}")
                 return False
+    
+    async def get_campaign_credit_analytics(self, campaign_id: int) -> Dict:
+        """Получает детальную аналитику по кредитам для кампании"""
+        
+        async with db.async_session() as session:
+            # Получаем общую статистику по кредитам
+            summary_result = await session.execute(
+                select(
+                    func.count(UTMEvent.id).filter(UTMEvent.event_type == 'purchase').label('total_purchases'),
+                    func.sum(UTMEvent.credits_purchased).filter(UTMEvent.event_type == 'purchase').label('total_credits_bought'),
+                    func.sum(UTMEvent.credits_spent).filter(UTMEvent.event_type == 'generation').label('total_credits_spent'),
+                    func.avg(UTMEvent.credits_purchased).filter(UTMEvent.event_type == 'purchase').label('avg_purchase_amount')
+                ).where(UTMEvent.campaign_id == campaign_id)
+            )
+            summary = summary_result.first()
+            
+            # Получаем выручку по методам оплаты
+            revenue_result = await session.execute(
+                text("""
+                    SELECT 
+                        SUM(CASE WHEN t.stars_paid IS NOT NULL THEN t.stars_paid ELSE 0 END) as total_stars,
+                        SUM(CASE WHEN t.rub_paid IS NOT NULL THEN t.rub_paid ELSE 0 END) as total_rub
+                    FROM utm_events e
+                    JOIN transactions t ON e.event_data->>'transaction_id' = CAST(t.id AS TEXT)
+                    WHERE e.campaign_id = :campaign_id AND e.event_type = 'purchase'
+                """),
+                {"campaign_id": campaign_id}
+            )
+            revenue = revenue_result.first()
+            
+            # Топ покупаемые пакеты
+            packages_result = await session.execute(
+                text("""
+                    SELECT 
+                        t.package_id,
+                        t.amount,
+                        COUNT(*) as transaction_count,
+                        SUM(t.amount) as total_credits,
+                        SUM(COALESCE(t.stars_paid, 0)) as total_stars_paid,
+                        SUM(COALESCE(t.rub_paid, 0)) as total_rub_paid
+                    FROM utm_events e
+                    JOIN transactions t ON e.event_data->>'transaction_id' = CAST(t.id AS TEXT)
+                    WHERE e.campaign_id = :campaign_id 
+                        AND e.event_type = 'purchase'
+                        AND t.status = 'completed'
+                    GROUP BY t.package_id, t.amount
+                    ORDER BY transaction_count DESC
+                    LIMIT 10
+                """),
+                {"campaign_id": campaign_id}
+            )
+            
+            packages = []
+            for row in packages_result:
+                packages.append({
+                    'package_id': row.package_id,
+                    'amount': row.amount,
+                    'transaction_count': row.transaction_count,
+                    'total_credits': row.total_credits,
+                    'total_stars_paid': row.total_stars_paid or 0,
+                    'total_rub_paid': float(row.total_rub_paid) if row.total_rub_paid else 0.0
+                })
+            
+            # Бонусные события
+            bonus_result = await session.execute(
+                select(
+                    UTMEvent.event_data,
+                    func.count(UTMEvent.id).label('usage_count'),
+                    func.sum(UTMEvent.credits_purchased).label('credits_amount')
+                ).where(
+                    and_(
+                        UTMEvent.campaign_id == campaign_id,
+                        UTMEvent.event_type == 'bonus'
+                    )
+                ).group_by(UTMEvent.event_data)
+            )
+            
+            bonuses = []
+            for row in bonus_result:
+                bonuses.append({
+                    'event_data': row.event_data,
+                    'usage_count': row.usage_count,
+                    'credits_amount': row.credits_amount or 0
+                })
+            
+            # Паттерны трат
+            spending_result = await session.execute(
+                text("""
+                    SELECT 
+                        t.amount,
+                        COUNT(*) as transaction_count
+                    FROM utm_events e
+                    JOIN transactions t ON e.user_id = t.user_id
+                    WHERE e.campaign_id = :campaign_id 
+                        AND t.type = 'generation'
+                        AND t.created_at >= e.event_at
+                    GROUP BY t.amount
+                    ORDER BY transaction_count DESC
+                    LIMIT 10
+                """),
+                {"campaign_id": campaign_id}
+            )
+            
+            spending_patterns = []
+            for row in spending_result:
+                spending_patterns.append({
+                    'amount': row.amount,
+                    'transaction_count': row.transaction_count
+                })
+            
+            return {
+                'summary': {
+                    'total_purchases': summary.total_purchases or 0,
+                    'total_credits_bought': summary.total_credits_bought or 0,
+                    'total_credits_spent': summary.total_credits_spent or 0,
+                    'avg_purchase_amount': float(summary.avg_purchase_amount) if summary.avg_purchase_amount else 0.0
+                },
+                'total_revenue': {
+                    'stars': revenue.total_stars or 0 if revenue else 0,
+                    'rub': float(revenue.total_rub) if revenue and revenue.total_rub else 0.0
+                },
+                'purchase_packages': packages,
+                'bonus_events': bonuses,
+                'spending_patterns': spending_patterns
+            }
+
 
 # Глобальный экземпляр сервиса
-utm_service = UTMAnalyticsService() 
+utm_service = UTMAnalyticsService()

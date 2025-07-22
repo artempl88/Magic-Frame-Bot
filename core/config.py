@@ -90,7 +90,6 @@ class Settings(BaseSettings):
     
     # Support
     SUPPORT_CHAT_ID: Optional[int] = None
-    CHANNEL_USERNAME: Optional[str] = None  # Канал для обязательной подписки
     
     @field_validator('SUPPORT_CHAT_ID', mode='before')
     @classmethod

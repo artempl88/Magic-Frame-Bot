@@ -585,10 +585,13 @@ async def view_campaign(callback: CallbackQuery, state: FSMContext):
         toggle_text = "🔴 Деактивировать" if campaign.get('is_active', False) else "🟢 Активировать"
         builder.button(text=toggle_text, callback_data=f"utm_toggle_{campaign_id}")
         
+        builder.button(text="📈 Подробная аналитика", callback_data=f"utm_detailed_{campaign_id}")
+        builder.button(text="💳 Аналитика кредитов", callback_data=f"utm_credits_{campaign_id}")
+        builder.button(text="📥 Экспорт данных", callback_data=f"utm_export_{campaign_id}")
         builder.button(text="🗑️ Удалить кампанию", callback_data=f"utm_delete_{campaign_id}")
         builder.button(text="📋 Список кампаний", callback_data="utm_list_campaigns")
         builder.button(text="◀️ Меню UTM", callback_data="utm_analytics")
-        builder.adjust(1, 1, 1)
+        builder.adjust(1, 2, 1, 1, 1, 1)
         
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         await callback.answer()
@@ -621,14 +624,10 @@ async def toggle_campaign(callback: CallbackQuery):
 
 # =================== ЭКСПОРТ ДАННЫХ ===================
 
-@router.callback_query(F.data.startswith("utm_export_"))
+@router.callback_query(F.data.startswith("utm_export_") & ~F.data.contains("summary"))
 @admin_required 
 async def export_campaign_data(callback: CallbackQuery):
     """Экспорт детальных данных кампании в CSV"""
-    
-    # Проверяем, что это не summary экспорт
-    if "utm_export_summary_" in callback.data:
-        return
     
     campaign_id = int(callback.data.split("_")[-1])
     
@@ -783,6 +782,7 @@ async def show_top_sources(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error showing top sources: {e}")
         await callback.answer("❌ Ошибка при загрузке данных", show_alert=True) 
+
 @router.callback_query(F.data.startswith("utm_delete_"))
 @admin_required
 async def delete_campaign(callback: CallbackQuery):
@@ -802,7 +802,6 @@ async def delete_campaign(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error deleting UTM campaign {campaign_id}: {e}")
         await callback.answer("❌ Ошибка при удалении кампании", show_alert=True)
-
 
 @router.callback_query(F.data.startswith("utm_detailed_"))
 @admin_required
@@ -868,68 +867,6 @@ async def show_detailed_analytics(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error showing detailed analytics for campaign {campaign_id}: {e}")
         await callback.answer("❌ Ошибка при загрузке детальной аналитики", show_alert=True)
-
-@router.callback_query(F.data.startswith("utm_export_summary_"))
-@admin_required
-async def export_campaign_summary(callback: CallbackQuery):
-    """Экспорт сводки по кампании в CSV"""
-    
-    campaign_id = int(callback.data.split("_")[-1])
-    
-    try:
-        # Получаем данные за последние 30 дней
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=30)
-        
-        data = await utm_service.export_campaign_data(campaign_id, start_date, end_date)
-        
-        if not data:
-            await callback.answer("📝 Нет данных для экспорта", show_alert=True)
-            return
-        
-        # Создаем CSV
-        output = io.StringIO()
-        
-        # Определяем поля для сводки
-        fieldnames = [
-            f'Кампания_{campaign_id}', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
-            'total_clicks', 'unique_users', 'first_visits', 'registered_users_clicks', 'new_users_clicks',
-            'registrations', 'purchases', 'generations', 'total_revenue',
-            'revenue_per_click', 'revenue_per_user',
-            'click_to_registration_rate', 'click_to_purchase_rate', 'registration_to_purchase_rate',
-            'avg_time_to_convert_minutes', 'is_active', 'created_at', 'export_date'
-        ]
-        
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(data)
-        
-        # Создаем файл для отправки
-        csv_content = output.getvalue().encode('utf-8')
-        filename = f"utm_summary_{campaign_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        
-        file = BufferedInputFile(csv_content, filename=filename)
-        
-        await callback.message.answer_document(
-            file,
-            caption=f"""📊 <b>Сводка по UTM кампании</b>
-
-📋 <b>Кампания:</b> {data[0][f'Кампания_{campaign_id}']}
-📅 <b>Период:</b> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
-📈 <b>Кликов:</b> {data[0]['total_clicks']}
-👥 <b>Уникальных:</b> {data[0]['unique_users']}
-💰 <b>Выручка:</b> {data[0]['total_revenue']:.2f}₽
-
-<i>Файл содержит сводную аналитику кампании с основными метриками</i>""",
-            parse_mode="HTML"
-        )
-        
-        await callback.answer("✅ Сводка экспортирована")
-        
-    except Exception as e:
-        logger.error(f"Error exporting UTM campaign summary {campaign_id}: {e}")
-        await callback.answer("❌ Ошибка при экспорте сводки", show_alert=True)
-
 
 @router.callback_query(F.data.startswith("utm_credits_"))
 @admin_required

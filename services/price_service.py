@@ -1,7 +1,8 @@
 import logging
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
-from sqlalchemy import select, update, delete
+from datetime import datetime
+from sqlalchemy import select, update, delete, and_
 from sqlalchemy.orm import selectinload
 
 from services.database import db
@@ -47,10 +48,16 @@ class PriceService:
                     }
                 
                 # Если цены для пакета не найдены в БД, используем дефолтные из constants
-                if not prices:
+                if package_id and package_id not in prices:
                     return self._get_default_prices(package_id)
+                elif not prices:
+                    return self._get_default_prices()
                 
-                return prices
+                # Дополняем дефолтными ценами для пакетов без кастомных цен
+                all_prices = self._get_default_prices()
+                all_prices.update(prices)
+                
+                return all_prices if not package_id else {package_id: all_prices.get(package_id, {})}
                 
         except Exception as e:
             logger.error(f"Error getting package prices: {e}")
@@ -100,8 +107,10 @@ class PriceService:
                 # Ищем существующую запись
                 result = await session.execute(
                     select(PackagePrice).where(
-                        PackagePrice.package_id == package_id,
-                        PackagePrice.is_active == True
+                        and_(
+                            PackagePrice.package_id == package_id,
+                            PackagePrice.is_active == True
+                        )
                     )
                 )
                 existing_price = result.scalar_one_or_none()
@@ -117,6 +126,8 @@ class PriceService:
                     if admin_id is not None:
                         existing_price.updated_by = admin_id
                     
+                    existing_price.updated_at = datetime.utcnow()
+                    
                     await session.commit()
                     message = f"Цена пакета {package_id} обновлена"
                 else:
@@ -127,7 +138,9 @@ class PriceService:
                         rub_price=rub_price,
                         created_by=admin_id,
                         updated_by=admin_id,
-                        notes=notes
+                        notes=notes,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
                     )
                     session.add(new_price)
                     await session.commit()
@@ -154,10 +167,16 @@ class PriceService:
                 result = await session.execute(
                     update(PackagePrice)
                     .where(
-                        PackagePrice.package_id == package_id,
-                        PackagePrice.is_active == True
+                        and_(
+                            PackagePrice.package_id == package_id,
+                            PackagePrice.is_active == True
+                        )
                     )
-                    .values(is_active=False, updated_by=admin_id)
+                    .values(
+                        is_active=False, 
+                        updated_by=admin_id,
+                        updated_at=datetime.utcnow()
+                    )
                 )
                 
                 if result.rowcount > 0:
@@ -172,7 +191,7 @@ class PriceService:
             logger.error(error_msg)
             return False, error_msg
     
-    async def get_effective_price(self, package_id: str, payment_method: str = "telegram_stars") -> Optional[int]:
+    async def get_effective_price(self, package_id: str, payment_method: str = "telegram_stars") -> Optional[float]:
         """
         Получить эффективную цену пакета для определенного способа оплаты
         
@@ -255,7 +274,7 @@ class PriceService:
             logger.error(error_msg)
             return False, error_msg, []
     
-    async def get_price_history(self, package_id: str = None) -> List[Dict]:
+    async def get_price_history(self, package_id: str = None, limit: int = 50) -> List[Dict]:
         """
         Получить историю изменения цен
         
@@ -264,7 +283,7 @@ class PriceService:
         """
         try:
             async with db.async_session() as session:
-                query = select(PackagePrice).order_by(PackagePrice.updated_at.desc())
+                query = select(PackagePrice).order_by(PackagePrice.updated_at.desc()).limit(limit)
                 
                 if package_id:
                     query = query.where(PackagePrice.package_id == package_id)
@@ -274,9 +293,14 @@ class PriceService:
                 
                 history = []
                 for record in records:
+                    # Находим информацию о пакете
+                    package = next((p for p in CREDIT_PACKAGES if p.id == record.package_id), None)
+                    package_name = package.name if package else record.package_id
+                    
                     history.append({
                         "id": record.id,
                         "package_id": record.package_id,
+                        "package_name": package_name,
                         "stars_price": record.stars_price,
                         "rub_price": float(record.rub_price) if record.rub_price else None,
                         "is_active": record.is_active,
@@ -310,7 +334,75 @@ class PriceService:
             "discount_percent": round(discount_percent, 1),
             "discount_amount": discount_amount
         }
+    
+    async def reset_all_prices(self, admin_id: Optional[int] = None) -> Tuple[bool, str]:
+        """
+        Сбросить все кастомные цены к дефолтным
+        
+        Returns:
+            Tuple[success, message]
+        """
+        try:
+            async with db.async_session() as session:
+                # Помечаем все активные цены как неактивные
+                result = await session.execute(
+                    update(PackagePrice)
+                    .where(PackagePrice.is_active == True)
+                    .values(
+                        is_active=False,
+                        updated_by=admin_id,
+                        updated_at=datetime.utcnow()
+                    )
+                )
+                
+                count = result.rowcount
+                await session.commit()
+                
+                logger.info(f"All custom prices reset by admin {admin_id}, affected: {count}")
+                return True, f"Сброшено кастомных цен: {count}"
+                
+        except Exception as e:
+            error_msg = f"Error resetting prices: {e}"
+            logger.error(error_msg)
+            return False, error_msg
+    
+    async def get_current_prices_summary(self) -> Dict[str, Dict]:
+        """
+        Получить сводку текущих цен для всех пакетов
+        
+        Returns:
+            Словарь с информацией о ценах и скидках
+        """
+        try:
+            current_prices = await self.get_package_prices()
+            summary = {}
+            
+            for package in CREDIT_PACKAGES:
+                price_data = current_prices.get(package.id, {})
+                stars_price = price_data.get("stars_price", package.stars)
+                
+                # Рассчитываем скидку относительно дефолтной цены
+                discount = await self.calculate_package_discount(package.stars, stars_price)
+                
+                summary[package.id] = {
+                    "package_name": package.name,
+                    "credits": package.credits,
+                    "default_stars": package.stars,
+                    "current_stars": stars_price,
+                    "rub_price": price_data.get("rub_price"),
+                    "discount_percent": discount["discount_percent"],
+                    "discount_amount": discount["discount_amount"],
+                    "is_custom": price_data.get("id") is not None,
+                    "last_updated": price_data.get("updated_at"),
+                    "notes": price_data.get("notes")
+                }
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Error getting prices summary: {e}")
+            return {}
 
 
 # Глобальный экземпляр сервиса
-price_service = PriceService() 
+price_service = PriceService()
