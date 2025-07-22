@@ -107,11 +107,12 @@ class Settings(BaseSettings):
     PAYMENT_PROVIDER_TOKEN: Optional[str] = None  # Для других платежных систем (не Stars)
     ENABLE_TELEGRAM_STARS: bool = True
     
-    # YooKassa (ЮКасса)
-    YOOKASSA_SHOP_ID: Optional[str] = None
-    YOOKASSA_SECRET_KEY: Optional[str] = None
-    ENABLE_YOOKASSA: bool = False
-    YOOKASSA_WEBHOOK_URL: Optional[str] = None  # URL для получения уведомлений от ЮКассы
+    # YooKassa (ЮКасса) - ТЕСТОВЫЕ ДАННЫЕ!
+    # ⚠️ ВАЖНО: Для продакшена обязательно замените на реальные креденшиалы!
+    YOOKASSA_SHOP_ID: Optional[str] = "381764678"  # Тестовый магазин
+    YOOKASSA_SECRET_KEY: Optional[str] = "TEST:132257"  # Тестовый ключ
+    ENABLE_YOOKASSA: bool = True  # Включаем для тестирования
+    YOOKASSA_WEBHOOK_URL: Optional[str] = "/yookassa/webhook"  # URL для получения уведомлений от ЮКассы
     
     @property
     def YOOKASSA_WEBHOOK_ENDPOINT(self) -> Optional[str]:

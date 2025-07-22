@@ -48,6 +48,14 @@ ENABLE_TELEGRAM_STARS=true
 PAYMENT_PROVIDER_TOKEN=  # Оставьте пустым если используете только Stars
 
 # ===========================================
+# YOOKASSA TEST CONFIGURATION
+# ===========================================
+YOOKASSA_SHOP_ID=381764678
+YOOKASSA_SECRET_KEY=TEST:132257
+ENABLE_YOOKASSA=true
+YOOKASSA_WEBHOOK_URL=/yookassa/webhook
+
+# ===========================================
 # SECURITY
 # ===========================================
 SECRET_KEY=your_very_long_and_secure_secret_key_here_minimum_32_characters
