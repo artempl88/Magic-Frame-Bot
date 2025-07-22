@@ -346,22 +346,23 @@ async def create_stars_invoice(
         # Создаем описание
         description = translate('shop.invoice.description', default='Покупка кредитов для генерации видео')
         
-        # Отправляем инвойс с правильным payload
+        # ВАЖНО: Для Telegram Stars нужны специфические параметры
         await bot.send_invoice(
             chat_id=callback.from_user.id,
             title=title[:32],  # Telegram ограничение на длину
             description=description[:255],  # Telegram ограничение на длину
-            provider_token="",  # Telegram Stars не требует токен
+            payload=f"stars_{transaction.id}_{package_id}"[:64],  # Упрощенный payload
+            provider_token="",  # Для Stars должна быть пустая строка
             currency="XTR",  # Telegram Stars
             prices=prices,
-            payload=f"stars_transaction_{transaction.id}_{package_id}"[:64],  # Ограничение 64 байта
-            start_parameter=f"pay_{package_id}",
+            # Убираем start_parameter - он может вызывать проблемы со Stars
+            # start_parameter=f"pay_{package_id}",
             need_name=False,
             need_phone_number=False,
             need_email=False,
             need_shipping_address=False,
             is_flexible=False,
-            reply_markup=None
+            # Не передаем reply_markup для Stars
         )
         
         await callback.answer(translate('shop.invoice.sent', default='Инвойс отправлен'))
@@ -375,51 +376,51 @@ async def create_stars_invoice(
     except Exception as e:
         logger.error(f"Error creating invoice: {e}")
         
-        # Проверяем конкретные ошибки
+        # Более детальная обработка ошибок
         error_text = str(e).lower()
         if 'not enough' in error_text or 'insufficient' in error_text:
             await callback.answer(
                 translate('shop.insufficient_stars', default='Недостаточно Telegram Stars'),
                 show_alert=True
             )
-        elif 'form expired' in error_text:
+        elif 'currency' in error_text:
             await callback.answer(
-                translate('shop.form_expired', default='Форма истекла. Попробуйте снова.'),
+                "❌ Ошибка валюты. Проверьте настройки бота для Telegram Stars",
                 show_alert=True
             )
-        elif 'invoice already paid' in error_text:
+        elif 'provider_token' in error_text:
             await callback.answer(
-                translate('shop.invoice_already_paid', default='Инвойс уже оплачен.'),
+                "❌ Ошибка токена провайдера",
                 show_alert=True
             )
         else:
             await callback.answer(
-                translate('shop.payment_error', default='Ошибка платежа'),
+                f"❌ Ошибка: {str(e)[:100]}",
                 show_alert=True
             )
 
 @router.pre_checkout_query()
 async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery, bot: Bot):
     """Подтверждение платежа Telegram Stars перед оплатой"""
-    # Извлекаем ID транзакции из payload
     payload = pre_checkout_query.invoice_payload
     
-    if not payload or not payload.startswith("stars_transaction_"):
+    # Обновленная проверка payload
+    if not payload or not payload.startswith("stars_"):
         await bot.answer_pre_checkout_query(
             pre_checkout_query.id,
             ok=False,
-            error_message="Invalid payment data format"
+            error_message="Invalid payment data"
         )
         return
     
     try:
-        # Парсим payload: stars_transaction_{transaction_id}_{package_id}
+        # Парсим payload: stars_{transaction_id}_{package_id}
         parts = payload.split("_")
-        if len(parts) < 3:
+        if len(parts) < 2:
             raise ValueError("Invalid payload format")
             
-        transaction_id = int(parts[2])
-        package_id = parts[3] if len(parts) > 3 else None
+        transaction_id = int(parts[1])
+        package_id = parts[2] if len(parts) > 2 else None
         
         # Проверяем транзакцию
         transaction = await db.get_transaction(transaction_id)
