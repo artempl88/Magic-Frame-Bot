@@ -352,7 +352,7 @@ class UTMAnalyticsService:
         if end_date:
             filters.append(UTMClick.clicked_at <= end_date)
         
-        # Статистика по дням
+        # Статистика по дням (используем func.date для PostgreSQL)
         daily_result = await session.execute(
             select(
                 func.date(UTMClick.clicked_at).label('date'),
@@ -372,13 +372,13 @@ class UTMAnalyticsService:
                 'unique_users': row.unique_users
             })
         
-        # Топ часы активности
+        # Топ часы активности (используем to_char для PostgreSQL)
         hour_result = await session.execute(
             select(
-                func.strftime('%H:00', UTMClick.clicked_at).label('hour'),
+                func.to_char(UTMClick.clicked_at, 'HH24:00').label('hour'),
                 func.count(UTMClick.id).label('clicks')
             ).where(and_(*filters))
-            .group_by(func.strftime('%H:00', UTMClick.clicked_at))
+            .group_by(func.to_char(UTMClick.clicked_at, 'HH24:00'))
             .order_by(desc('clicks'))
             .limit(5)
         )
